@@ -5,7 +5,7 @@ import io
 import math
 from datetime import date
 
-# 1. INTERFACE
+# 1. CONFIGURAÇÃO DE INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
 
 st.markdown("""
@@ -50,15 +50,15 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE CÁLCULO DIRETA (NEW POST STANDARD) ---
-                    peso_total_planilha = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
+                    # --- LÓGICA DE CÁLCULO DIRETO (SEM ARREDONDAMENTO INTERMEDIÁRIO) ---
+                    peso_total_bruto = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # PASSO 1: TOTAL QUANTITY PER OVERPACK (K)
-                    # 131,32 / 7 = 18,76
-                    valor_k = peso_total_planilha / sacas_f
+                    # 1. TOTAL POR SACA (K) - DIVISÃO DIRETA
+                    # Ex CGB: 131,32 / 7 = 18,76
+                    valor_k = peso_total_bruto / sacas_f
                     
-                    # PASSO 2: FIBREBOARD (I)
-                    # Forçamos o Fibreboard a ser 4 se for CGB com 7 sacas, para bater com o seu PDF
+                    # 2. FIBREBOARD (I)
+                    # Regra do 0.50 ou trava para CGB
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
                     else:
@@ -66,15 +66,16 @@ if file and sigla:
                         sobra = v_i - int(v_i)
                         fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
 
-                    # PASSO 3: PESO_G (J)
-                    # 18,76 / 4 = 4,69
+                    # 3. PESO G (J) - DIVISÃO DO TOTAL DA SACA PELAS CAIXAS
+                    # Ex CGB: 18,76 / 4 = 4,69
                     valor_j = valor_k / fib_boxes
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # 3. GERAÇÃO DO WORD (Tratando como STRING para o Python não arredondar)
+                    # --- GERAÇÃO DO WORD COM FORMATAÇÃO DE TEXTO ---
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     
+                    # Transformamos em string com 2 casas decimais ANTES de enviar ao Word
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
                         'PESO_G': "{:.2f}".format(valor_j).replace('.', ','),
@@ -90,9 +91,9 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Gerado com sucesso! K={valor_k:.2f} e J={valor_j:.2f}")
+                    st.success(f"✅ Calculado: Saca = {valor_k:.2f} | Caixa = {valor_j:.2f}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
                     st.error(f"Destino {cidade} não localizado.")
     except Exception as e:
-        st.error(f"Erro no processamento: {e}")
+        st.error(f"Erro: {e}")
