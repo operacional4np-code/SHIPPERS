@@ -5,33 +5,20 @@ import io
 import math
 from datetime import date
 
-# --- REGRAS DE CÁLCULO PRECISAS ---
+# --- REGRAS DE CÁLCULO EXATAS ---
 
 def arredondar_I(valor):
-    """Regra do vídeo: > 0.50 sobe, <= 0.50 desce"""
+    """Regra do vídeo: > 0.50 sobe para o próximo inteiro, <= 0.50 mantém o inteiro atual"""
     fracao = valor - int(valor)
     return math.ceil(valor) if fracao > 0.50 else math.floor(valor)
 
-def otimizar_saca_kg(peso_alvo, sacas_f, fib_boxes_i):
-    """
-    Busca o valor da Saca (Coluna J) que resulte no peso 
-    mais próximo do original, sem ser menor que ele.
-    """
-    if sacas_f <= 0 or fib_boxes_i <= 0: return 0.0
-    
-    total_unidades = sacas_f * fib_boxes_i
-    # Valor base da saca (Peso / Total de unidades)
-    saca_base = peso_alvo / total_unidades
-    
-    # Testamos com precisão de duas casas decimais (ex: 0.11, 0.12...)
-    # Arredondamos a base para cima para garantir que a sobra comece positiva
-    melhor_saca = math.ceil(saca_base * 100) / 100
-    
-    return melhor_saca
+def gerar_sequencia_sacas(n):
+    """Gera a string: #1 #2 #3 ... #n"""
+    return " ".join([f"#{i+1}" for i in range(int(n))])
 
 # --- INTERFACE ---
 st.set_page_config(page_title="Gerador New Post 📝", layout="wide")
-st.title("📝 Ajuste Fino de Cálculos (Versão Anexo)")
+st.title("📝 Ajuste Final: Cálculos e Marcação")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -39,12 +26,12 @@ with col1:
 with col2:
     sacas_f = st.number_input("Qtd de Sacas (Coluna F):", min_value=1, step=1)
 
-file = st.file_uploader("Suba sua Planilha", type=["xlsx"])
+file = st.file_uploader("Suba sua Planilha de Coleta", type=["xlsx"])
 
 if file and sigla:
     df_raw = pd.read_excel(file, header=None)
     
-    # Busca dinâmica da linha de títulos
+    # Localização dinâmica da linha de títulos
     start_row = 0
     for i in range(min(20, len(df_raw))):
         linha = [str(val).upper().strip() for val in df_raw.iloc[i].values]
@@ -67,28 +54,37 @@ if file and sigla:
             df_f = df_f[~df_f[col_dest].astype(str).str.contains("TOTAL", na=False, case=False)]
 
             if not df_f.empty:
-                # 1. PESO G (Soma exata da planilha)
+                # 1. PESO G (Soma real da planilha)
                 peso_real_g = pd.to_numeric(df_f[col_peso], errors='coerce').sum()
                 
-                # 2. COLUNA I (Fib Boxes)
+                # 2. COLUNA I (Fib Boxes) - Fórmula: Peso / Sacas F
                 valor_i = peso_real_g / sacas_f
                 fib_boxes_i = arredondar_I(valor_i)
                 
-                # 3. COLUNA J (Saca kg - Otimizada)
-                saca_kg_j = otimizar_saca_kg(peso_real_g, sacas_f, fib_boxes_i)
+                # 3. COLUNA J (Saca kg) - Fórmula: (Peso / Sacas F) / Fib Boxes I
+                # Usamos a lógica de ajuste para não ser negativo
+                if fib_boxes_i > 0:
+                    saca_kg_j = (peso_real_g / sacas_f) / fib_boxes_i
+                    # Arredondamos para 2 casas para cima para garantir que L >= G
+                    saca_kg_j = math.ceil(saca_kg_j * 100) / 100
+                else:
+                    saca_kg_j = 0
                 
-                # 4. COLUNA K (Total Overpack)
+                # 4. COLUNA K (Total Overpack) - Fórmula: (Sacas F * Fib Boxes I) * Saca KG J
                 total_overpack_k = (sacas_f * fib_boxes_i) * saca_kg_j
+                
+                # 5. ETIQUETA MARCACAO (Ex: #1 #2 #3...)
+                texto_marcacao = gerar_sequencia_sacas(sacas_f)
                 
                 try:
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
-                        'FIBREBOARD': fib_boxes_i,
+                        'FIBREBOARD': int(fib_boxes_i),
                         'PESO_G': f"{saca_kg_j:.2f}".replace('.', ','),
                         'TOTAL_OVERPACK': f"{total_overpack_k:.2f}".replace('.', ','),
-                        'MARCACAO': sigla,
+                        'MARCACAO': texto_marcacao,
                         'DATA': date.today().strftime('%d/%m/%Y'),
-                        'QTD_OVERPACK': sacas_f
+                        'QTD_OVERPACK': int(sacas_f)
                     }
                     doc.render(contexto)
                     
@@ -96,7 +92,7 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Calculado! Peso Planilha: {peso_real_g} | Total Etiqueta: {total_overpack_k}")
+                    st.success(f"✅ Calculado! Marcação: {texto_marcacao}")
                     st.download_button("📥 Baixar Shipper", output, f"Shipper_{sigla}.docx")
                 except Exception as e:
                     st.error(f"Erro no Word: {e}")
