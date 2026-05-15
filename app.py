@@ -7,7 +7,7 @@ from datetime import date
 
 # 1. INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
-st.title("Gerador de Shippers - New Post (Ajuste de Precisão)")
+st.title("Gerador de Shippers - New Post")
 
 # 2. ENTRADA
 col1, col2 = st.columns(2)
