@@ -4,11 +4,11 @@ from docxtpl import DocxTemplate
 import io
 import math
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_UP
 
 # 1. INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
-st.title("Gerador de Shippers - New Post")
+st.title("Gerador de Shippers - New Post (Lógica Coluna M)")
 
 # 2. ENTRADA
 col1, col2 = st.columns(2)
@@ -43,42 +43,33 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE PRECISÃO DECIMAL (SIMULANDO COLUNA J, K, M) ---
-                    # Convertemos o peso total para Decimal para evitar erros de 0.0000001
-                    peso_total = Decimal(str(pd.to_numeric(df_f[c_peso], errors='coerce').sum()))
+                    # --- LÓGICA DE PRECISÃO (COLUNA J, K e M) ---
+                    peso_total_real = Decimal(str(pd.to_numeric(df_f[c_peso], errors='coerce').sum()))
                     qtd_sacas = Decimal(str(sacas_f))
                     
                     # PASSO 1: DEFINIR FIBREBOARD (I)
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = Decimal('4')
                     else:
-                        v_i = float(peso_total / qtd_sacas) / 4.5
+                        v_i = float(peso_total_real / qtd_sacas) / 4.5
                         fib_boxes = Decimal(str(math.ceil(v_i) if (v_i - int(v_i)) > 0.50 else math.floor(v_i)))
 
-                    # PASSO 2: AJUSTE DO Kg G (Coluna J)
-                    # Cálculo inicial: (Peso Total / Sacas) / Caixas
-                    g_inicial = (peso_total / qtd_sacas) / fib_boxes
-                    # Arredondamos para 2 casas como ponto de partida
-                    kg_g = g_inicial.quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
+                    # PASSO 2: AJUSTE DO Kg G (Coluna J) - BUSCA PELO SALDO POSITIVO NA COLUNA M
+                    # Começamos pelo valor mínimo possível
+                    kg_g = (peso_total_real / qtd_sacas / fib_boxes).quantize(Decimal('0.01'), rounding=ROUND_UP)
                     
-                    # LOOP DE AJUSTE (Simulação da Coluna M da sua planilha)
-                    # O objetivo é que: (kg_g * fib_boxes * qtd_sacas) >= peso_total
-                    while True:
-                        total_calculado = (kg_g * fib_boxes * qtd_sacas).quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
-                        saldo_m = total_calculado - peso_total
-                        
-                        if saldo_m >= 0:
-                            break # Encontramos o valor que zera ou positiva a coluna M
-                        else:
-                            kg_g += Decimal('0.01') # Sobe 0,01 até atingir a referência
+                    # Loop de Ajuste: Enquanto (Kg G * Caixas * Sacas) for menor que o peso real da planilha, subimos o Kg G
+                    # Isso garante que a Coluna M nunca seja negativa
+                    while (kg_g * fib_boxes * qtd_sacas) < peso_total_real:
+                        kg_g += Decimal('0.01')
                     
                     # PASSO 3: TOTAL QUANTITY PER OVERPACK (Coluna K)
-                    # É obrigatoriamente o Kg G ajustado multiplicado pelas caixas
-                    total_overpack = (kg_g * fib_boxes).quantize(Decimal('0.00'), rounding=ROUND_HALF_UP)
+                    # Resultado do Kg G ajustado multiplicado pelas caixas (J * I)
+                    total_overpack = (kg_g * fib_boxes).quantize(Decimal('0.01'), rounding=ROUND_UP)
                     
-                    # FORMATAÇÃO FINAL PARA O WORD
-                    txt_total_k = "{:.2f}".format(total_overpack).replace('.', ',')
+                    # FORMATAÇÃO PARA O WORD
                     txt_kg_g = "{:.2f}".format(kg_g).replace('.', ',')
+                    txt_total_k = "{:.2f}".format(total_overpack).replace('.', ',')
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
@@ -98,9 +89,7 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Cálculos Alinhados! G: {txt_kg_g} | Total K: {txt_total_k}")
+                    st.success(f"✅ Ajuste Concluído! Kg G: {txt_kg_g} | Total OVP: {txt_total_k}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
-                else:
-                    st.error("Destino não localizado.")
     except Exception as e:
-        st.error(f"Erro técnico: {e}")
+        st.error(f"Erro: {e}")
