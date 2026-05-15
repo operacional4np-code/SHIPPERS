@@ -3,7 +3,7 @@ import pandas as pd
 from docxtpl import DocxTemplate
 import io
 import zipfile
-from src.processamento import calcular_dados_shipper
+from processamento import calcular_dados_shipper
 
 # Configuração da página com o emoji de papel
 st.set_page_config(page_title="Gerador New Post 📝", layout="wide")
