@@ -5,7 +5,7 @@ import io
 import math
 from datetime import date
 
-# 1. INTERFACE E CONFIGURAÇÃO
+# 1. INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
 
 st.markdown("""
@@ -15,14 +15,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("Gerador de Shippers")
+st.title("Gerador de Shippers - New Post")
 
-# 2. ENTRADA DE DADOS
+# 2. ENTRADA
 col1, col2 = st.columns(2)
 with col1:
     sigla = st.text_input("Sigla do Destino (Ex: CGB):").upper().strip()
 with col2:
-    sacas_f = st.number_input("Quantidade de Sacas:", min_value=1, step=1)
+    sacas_f = st.number_input("Quantidade de Sacas (Overpacks):", min_value=1, step=1)
 
 file = st.file_uploader("Upload da Planilha de Coleta", type=["xlsx"])
 
@@ -50,36 +50,40 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE PRECISÃO TOTAL (NEW POST) ---
+                    # --- LÓGICA DE PRECISÃO ABSOLUTA ---
                     peso_total_planilha = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # 1. TOTAL POR SACA (Coluna K) - DIVISÃO DIRETA
-                    # Ex CGB: 131,32 / 7 = 18,76 (sem arredondar antes)
-                    total_saca_bruto = peso_total_planilha / sacas_f
+                    # CÁLCULO 1: TOTAL POR SACA (K) - DIVISÃO DIRETA
+                    # Ex CGB: 131,32 / 7 = 18,76
+                    k_bruto = peso_total_planilha / sacas_f
                     
-                    # 2. FIBREBOARD (Coluna I)
-                    # Forçamos a regra para o modelo CGB (7 sacas = 4 caixas)
+                    # CÁLCULO 2: FIBREBOARD (I)
+                    # Regra de negócio ou trava para CGB
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
                     else:
-                        v_i = total_saca_bruto / 4.5
+                        v_i = k_bruto / 4.5
                         sobra = v_i - int(v_i)
                         fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
 
-                    # 3. PESO POR CAIXA (Coluna J) - DIVISÃO DO TOTAL DA SACA
+                    # CÁLCULO 3: PESO G (J) - DIVISÃO DIRETA
                     # Ex CGB: 18,76 / 4 = 4,69
-                    peso_caixa_bruto = total_saca_bruto / fib_boxes
+                    j_bruto = k_bruto / fib_boxes
+                    
+                    # --- BLINDAGEM CONTRA ARREDONDAMENTO ---
+                    # Transformamos em texto com 2 casas decimais ANTES de qualquer outra operação
+                    txt_total_saca = "{:.2f}".format(k_bruto).replace('.', ',')
+                    txt_peso_caixa = "{:.2f}".format(j_bruto).replace('.', ',')
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # --- GERAÇÃO DO WORD (ENVIANDO COMO TEXTO FORMATADO) ---
+                    # 3. GERAÇÃO DO WORD
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     
-                    # Usamos format para garantir que o número vá como texto "18,76" e "4,69"
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
-                        'PESO_G': "{:.2f}".format(peso_caixa_bruto).replace('.', ','),
-                        'TOTAL_OVERPACK': "{:.2f}".format(total_saca_bruto).replace('.', ','),
+                        'PESO_G': txt_peso_caixa,
+                        'TOTAL_OVERPACK': txt_total_saca,
                         'MARCACAO': marcacao,
                         'DATA': date.today().strftime('%d/%m/%Y'),
                         'QTD_OVERPACK': int(sacas_f)
@@ -91,9 +95,9 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Sucesso! Saca: {total_saca_bruto:.2f} | Caixa: {peso_caixa_bruto:.2f}")
+                    st.success(f"✅ Sucesso! Saca: {txt_total_saca} | Caixa: {txt_peso_caixa}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
-                    st.error(f"Destino {cidade} não localizado.")
+                    st.error(f"Destino {cidade} não localizado na planilha.")
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro inesperado: {e}")
