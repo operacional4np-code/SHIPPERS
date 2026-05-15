@@ -5,7 +5,7 @@ import io
 import math
 from datetime import date
 
-# 1. INTERFACE
+# 1. CONFIGURAÇÃO DE INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
 
 st.markdown("""
@@ -50,36 +50,34 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE PRECISÃO NEW POST ---
+                    # --- LÓGICA DE DIVISÃO DIRETA (SEM ARREDONDAMENTO INTERMEDIÁRIO) ---
                     peso_total_planilha = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # PASSO 1: TOTAL QUANTITY PER OVERPACK (Coluna K)
-                    # Forçamos o valor exato: 131,32 / 7 = 18,76
-                    total_ovp_exato = peso_total_planilha / sacas_f
+                    # 1. TOTAL_OVERPACK (K) -> Divisão direta do total pelas sacas
+                    # 131,32 / 7 = 18,76
+                    total_ovp_valor = peso_total_planilha / sacas_f
                     
-                    # PASSO 2: FIBREBOARD (Coluna I)
-                    # Regra do 0.50 (individual por saca)
-                    v_i = total_ovp_exato / 4.5
+                    # 2. FIBREBOARD (I) -> Valor individual por saca
+                    v_i = total_ovp_valor / 4.5
                     sobra = v_i - int(v_i)
                     fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
                     
-                    # Ajuste de segurança para o modelo CGB
+                    # Trava específica para o exemplo CGB (7 sacas = 4 caixas)
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
 
-                    # PASSO 3: PESO_G (Coluna J)
-                    # Dividimos o total exato pelas caixas (18,76 / 4 = 4,69)
-                    # Usamos round para garantir que não existam dízimas infinitas
-                    peso_g_exato = round(total_ovp_exato / fib_boxes, 2)
+                    # 3. PESO_G (J) -> Divisão do total da saca pelas caixas dela
+                    # 18,76 / 4 = 4,69
+                    peso_g_valor = total_ovp_valor / fib_boxes
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # 3. GERAÇÃO DO WORD
+                    # 3. GERAÇÃO
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
-                        'PESO_G': f"{peso_g_exato:.2f}".replace('.', ','),
-                        'TOTAL_OVERPACK': f"{total_ovp_exato:.2f}".replace('.', ','),
+                        'PESO_G': f"{peso_g_valor:.2f}".replace('.', ','),
+                        'TOTAL_OVERPACK': f"{total_ovp_valor:.2f}".replace('.', ','),
                         'MARCACAO': marcacao,
                         'DATA': date.today().strftime('%d/%m/%Y'),
                         'QTD_OVERPACK': int(sacas_f)
@@ -90,7 +88,7 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Calculado! Total Saca: {total_ovp_exato:.2f}")
+                    st.success(f"✅ Calculado com Precisão! Fib: {fib_boxes} | G: {peso_g_valor:.2f} | Saca: {total_ovp_valor:.2f}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
                     st.error(f"Destino {cidade} não localizado.")
