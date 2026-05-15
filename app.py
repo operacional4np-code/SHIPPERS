@@ -50,14 +50,15 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE DIVISÃO DIRETA (SEM ARREDONDAMENTO INTERMEDIÁRIO) ---
+                    # --- LÓGICA DE DIVISÃO DIRETA (SEM MULTIPLICAÇÃO REVERSA) ---
                     peso_total_planilha = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # 1. TOTAL_OVERPACK (K) -> Divisão direta do total pelas sacas
-                    # 131,32 / 7 = 18,76
+                    # PASSO 1: TOTAL QUANTITY PER OVERPACK (K)
+                    # 131,32 / 7 = 18,76 (Valor exato que vai para o documento)
                     total_ovp_valor = peso_total_planilha / sacas_f
                     
-                    # 2. FIBREBOARD (I) -> Valor individual por saca
+                    # PASSO 2: FIBREBOARD (I)
+                    # Mantendo a regra do 0.50 (individual por saca)
                     v_i = total_ovp_valor / 4.5
                     sobra = v_i - int(v_i)
                     fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
@@ -66,13 +67,13 @@ if file and sigla:
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
 
-                    # 3. PESO_G (J) -> Divisão do total da saca pelas caixas dela
-                    # 18,76 / 4 = 4,69
+                    # PASSO 3: PESO_G (J)
+                    # Dividimos o total da saca pelas caixas (18,76 / 4 = 4,69)
                     peso_g_valor = total_ovp_valor / fib_boxes
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # 3. GERAÇÃO
+                    # 3. GERAÇÃO DO WORD
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
@@ -91,6 +92,6 @@ if file and sigla:
                     st.success(f"✅ Calculado com Precisão! Fib: {fib_boxes} | G: {peso_g_valor:.2f} | Saca: {total_ovp_valor:.2f}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
-                    st.error(f"Destino {cidade} não localizado.")
+                    st.error(f"Destino {cidade} não encontrado.")
     except Exception as e:
         st.error(f"Erro: {e}")
