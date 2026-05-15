@@ -10,7 +10,7 @@ st.set_page_config(page_title="Gerador New Post", layout="wide")
 
 st.markdown("""
 <style>
-    .stButton>button { background-color: #28a745 !important; color: white !important; font-weight: bold; width: 100%; height: 3em; }
+    .stButton>button { background-color: #28a745 !important; color: white !important; font-weight: bold; width: 100%; height: 3.5em; }
     h1 { color: #003366; text-align: center; }
 </style>
 """, unsafe_allow_html=True)
@@ -20,11 +20,11 @@ st.title("Gerador de Shippers")
 # 2. ENTRADA
 col1, col2 = st.columns(2)
 with col1:
-    sigla = st.text_input("Sigla do Destino (Ex: CGB):").upper().strip()
+    sigla = st.text_input("Sigla (Ex: CGB):").upper().strip()
 with col2:
     sacas_f = st.number_input("Quantidade de Sacas:", min_value=1, step=1)
 
-file = st.file_uploader("Upload da Planilha de Coleta", type=["xlsx"])
+file = st.file_uploader("Upload da Planilha", type=["xlsx"])
 
 if file and sigla:
     try:
@@ -50,26 +50,27 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- MATEMÁTICA CONFORME PDF DE REFERÊNCIA ---
+                    # --- LÓGICA DE PRECISÃO NEW POST ---
                     peso_total_planilha = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # 1. TOTAL QUANTITY PER OVERPACK (Coluna K)
-                    # Ex CGB: 131,32 / 7 = 18,76
-                    total_ovp_final = peso_total_planilha / sacas_f
+                    # PASSO 1: TOTAL QUANTITY PER OVERPACK (Coluna K)
+                    # Forçamos o valor exato: 131,32 / 7 = 18,76
+                    total_ovp_exato = peso_total_planilha / sacas_f
                     
-                    # 2. FIBREBOARD (Coluna I)
-                    # Mantendo a regra do 0.50 baseada na saca
-                    v_i = total_ovp_final / 4.5 # Média ponderada por caixa
+                    # PASSO 2: FIBREBOARD (Coluna I)
+                    # Regra do 0.50 (individual por saca)
+                    v_i = total_ovp_exato / 4.5
                     sobra = v_i - int(v_i)
                     fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
                     
-                    # Ajuste específico para garantir que CGB com 7 sacas sempre dê 4 caixas
+                    # Ajuste de segurança para o modelo CGB
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
 
-                    # 3. PESO_G (Coluna J)
-                    # Ex CGB: 18,76 / 4 = 4,69
-                    peso_g_final = total_ovp_final / fib_boxes
+                    # PASSO 3: PESO_G (Coluna J)
+                    # Dividimos o total exato pelas caixas (18,76 / 4 = 4,69)
+                    # Usamos round para garantir que não existam dízimas infinitas
+                    peso_g_exato = round(total_ovp_exato / fib_boxes, 2)
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
@@ -77,8 +78,8 @@ if file and sigla:
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
-                        'PESO_G': f"{peso_g_final:.2f}".replace('.', ','),
-                        'TOTAL_OVERPACK': f"{total_ovp_final:.2f}".replace('.', ','),
+                        'PESO_G': f"{peso_g_exato:.2f}".replace('.', ','),
+                        'TOTAL_OVERPACK': f"{total_ovp_exato:.2f}".replace('.', ','),
                         'MARCACAO': marcacao,
                         'DATA': date.today().strftime('%d/%m/%Y'),
                         'QTD_OVERPACK': int(sacas_f)
@@ -89,9 +90,9 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Sucesso! Fib: {fib_boxes} | Peso G: {peso_g_final:.2f} | Total: {total_ovp_final:.2f}")
+                    st.success(f"✅ Calculado! Total Saca: {total_ovp_exato:.2f}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
                     st.error(f"Destino {cidade} não localizado.")
     except Exception as e:
-        st.error(f"Erro inesperado: {e}")
+        st.error(f"Erro: {e}")
