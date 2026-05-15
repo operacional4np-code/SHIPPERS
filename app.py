@@ -3,14 +3,13 @@ import pandas as pd
 from docxtpl import DocxTemplate
 import io
 from datetime import date
-from zipfile import ZipFile # Biblioteca para criar o arquivo ZIP
 
-# 1. CONFIGURAÇÃO
-st.set_page_config(page_title=" 📄 Gerador de shippers - New post logística", layout="wide")
-st.title("Gerador de Shippers em Lote")
-st.markdown("Digite as siglas separadas por vírgula para baixar tudo de uma vez.")
+# 1. CONFIGURAÇÃO DA INTERFACE
+st.set_page_config(page_title=" 📄 Gerador de shippers - New Post", layout="wide")
+st.title("Gerador de Shippers - Automação Completa")
+st.markdown("Agora o sistema busca todas as informações (incluindo sacas) diretamente da planilha.")
 
-# 2. MAPA DE TRADUÇÃO
+# 2. MAPA DE TRADUÇÃO (Sigla -> Termo na Planilha)
 MAPA_DESTINOS = {
     "CGR": "CAMPO GRANDE",
     "CGB": "CUIABA",
@@ -22,79 +21,80 @@ MAPA_DESTINOS = {
     "PVH": "PORTO VELHO"
 }
 
-# 3. ENTRADA MULTIPLA
-# Agora aceita: CGB, POA, MAO
-siglas_input = st.text_input("Digite as Siglas (Ex: CGB, POA, MAO):").upper().strip()
+# 3. ENTRADA ÚNICA: SIGLA
+sigla_digitada = st.text_input("Digite a Sigla do Destino (Ex: CGB, POA, MAO):").upper().strip()
 
 file = st.file_uploader("Upload da Planilha de Informações (.xlsm)", type=["xlsm", "xlsx"])
 
-if file and siglas_input:
+if file and sigla_digitada:
     try:
+        # Carrega a planilha com suporte a macros
         df = pd.read_excel(file, header=None, engine='openpyxl')
         
-        # Transforma a entrada "CGB, POA" em uma lista ['CGB', 'POA']
-        lista_siglas = [s.strip() for s in siglas_input.split(",")]
+        if st.button("GERAR SHIPPER"):
+            # Traduz a sigla para o nome que está na planilha
+            termo_busca = MAPA_DESTINOS.get(sigla_digitada, sigla_digitada)
+            
+            def localizar_linha(termo, dataframe):
+                for index, row in dataframe.iterrows():
+                    linha_texto = " ".join([str(val).upper() for val in row.values if pd.notnull(val)])
+                    if termo in linha_texto:
+                        return row
+                return None
 
-        if st.button(f"GERAR {len(lista_siglas)} SHIPPERS"):
-            # Criamos um "balde" (buffer) para guardar o arquivo ZIP na memória
-            zip_buffer = io.BytesIO()
+            dados = localizar_linha(termo_busca, df)
 
-            with ZipFile(zip_buffer, "w") as zip_file:
-                processados = 0
+            if dados is not None:
+                # --- EXTRAÇÃO AUTOMÁTICA PELAS COLUNAS ---
+                # F = 5, I = 8, J = 9, K = 10 (Índices começam em 0)
+                v_sacas      = dados[5]   # Coluna F
+                v_fibreboard = dados[8]   # Coluna I
+                v_kg_g       = dados[9]   # Coluna J
+                v_total_ovp  = dados[10]  # Coluna K
+
+                def formatar_valor(valor):
+                    try:
+                        return "{:.2f}".format(float(valor)).replace('.', ',')
+                    except:
+                        return str(valor).replace('.', ',')
+
+                txt_kg_g = formatar_valor(v_kg_g)
+                txt_total_k = formatar_valor(v_total_ovp)
                 
-                for sigla in lista_siglas:
-                    termo_busca = MAPA_DESTINOS.get(sigla, sigla)
+                # Gera as etiquetas baseadas na Coluna F da planilha
+                qtd_sacas_int = int(v_sacas) if pd.notnull(v_sacas) else 1
+                marcacao = " ".join([f"#{i+1}" for i in range(qtd_sacas_int)])
+
+                # 4. GERAÇÃO DO DOCUMENTO
+                try:
+                    doc = DocxTemplate(f"templates/{sigla_digitada}-SHIPPER-t.docx")
                     
-                    # Localiza a linha do destino
-                    dados = None
-                    for index, row in df.iterrows():
-                        linha_texto = " ".join([str(val).upper() for val in row.values if pd.notnull(val)])
-                        if termo_busca in linha_texto:
-                            dados = row
-                            break
+                    contexto = {
+                        'FIBREBOARD': int(v_fibreboard) if pd.notnull(v_fibreboard) else 0,
+                        'PESO_G': txt_kg_g,
+                        'TOTAL_OVERPACK': txt_total_k,
+                        'MARCACAO': marcacao,
+                        'DATA': date.today().strftime('%d/%m/%Y'),
+                        'QTD_OVERPACK': qtd_sacas_int
+                    }
                     
-                    if dados is not None:
-                        # Extração das colunas F, I, J, K
-                        v_sacas      = dados[5]   
-                        v_fibreboard = dados[8]   
-                        v_kg_g       = dados[9]   
-                        v_total_ovp  = dados[10]  
-
-                        def formatar(v):
-                            try: return "{:.2f}".format(float(v)).replace('.', ',')
-                            except: return str(v).replace('.', ',')
-
-                        qtd_sacas = int(v_sacas) if pd.notnull(v_sacas) else 1
-                        
-                        # Gera o conteúdo do Word
-                        try:
-                            doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
-                            contexto = {
-                                'FIBREBOARD': int(v_fibreboard) if pd.notnull(v_fibreboard) else 0,
-                                'PESO_G': formatar(v_kg_g),
-                                'TOTAL_OVERPACK': formatar(v_total_ovp),
-                                'MARCACAO': " ".join([f"#{i+1}" for i in range(qtd_sacas)]),
-                                'DATA': date.today().strftime('%d/%m/%Y'),
-                                'QTD_OVERPACK': qtd_sacas
-                            }
-                            doc.render(contexto)
-
-                            # Salva este Word específico dentro do ZIP
-                            doc_io = io.BytesIO()
-                            doc.save(doc_io)
-                            zip_file.writestr(f"Shipper_{sigla}.docx", doc_io.getvalue())
-                            processados += 1
-                        except:
-                            st.error(f"Template para {sigla} não encontrado.")
-
-                if processados > 0:
-                    zip_buffer.seek(0)
-                    st.success(f"✅ {processados} Shippers preparadas!")
+                    doc.render(contexto)
+                    
+                    output = io.BytesIO()
+                    doc.save(output)
+                    output.seek(0)
+                    
+                    st.success(f"✅ Sucesso! Destino: {termo_busca} | Sacas: {qtd_sacas_int}")
                     st.download_button(
-                        label="📥 BAIXAR TODAS (ARQUIVO ZIP)",
-                        data=zip_buffer,
-                        file_name=f"Shippers_NewPost_{date.today()}.zip",
-                        mime="application/zip"
+                        label=f"📥 BAIXAR SHIPPER {sigla_digitada}",
+                        data=output,
+                        file_name=f"Shipper_{sigla_digitada}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
+                except Exception as e:
+                    st.error(f"Erro ao localizar o template para {sigla_digitada}. Verifique a pasta 'templates'.")
+            else:
+                st.error(f"O termo '{termo_busca}' não foi encontrado em nenhuma linha da planilha.")
+                
     except Exception as e:
-        st.error(f"Erro no processamento: {e}")
+        st.error(f"Erro ao processar a planilha: {e}")
