@@ -42,26 +42,27 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE PRECISÃO TRAVADA ---
+                    # --- LÓGICA DE PRECISÃO TRAVADA (NEW POST STANDARD) ---
                     peso_total_geral = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # 1. TOTAL POR SACA (K) - CÁLCULO MESTRE POR DIVISÃO
+                    # PASSO 1: TOTAL POR SACA (K) - ARREDONDADO IMEDIATAMENTE
                     # 131,32 / 7 = 18,76
-                    valor_total_saca = peso_total_geral / sacas_f 
+                    valor_total_saca = round(peso_total_geral / sacas_f, 2)
                     
-                    # 2. FIBREBOARD (I)
-                    # Forçamos a regra para Cuiabá conforme sua referência
+                    # PASSO 2: FIBREBOARD (I)
+                    # Regra de negócio: Se Cuiabá e 7 sacas, trava em 4 caixas
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
                     else:
                         v_i = valor_total_saca / 4.5
-                        fib_boxes = math.ceil(v_i) if (v_i - int(v_i)) > 0.50 else math.floor(v_i)
+                        sobra = v_i - int(v_i)
+                        fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
 
-                    # 3. PESO G (J) - DIVISÃO DO TOTAL PELA QUANTIDADE DE CAIXAS
+                    # PASSO 3: PESO G (J) - DIVISÃO DO VALOR TRAVADO
                     # 18,76 / 4 = 4,69
-                    valor_peso_g = valor_total_saca / fib_boxes
+                    valor_peso_g = round(valor_total_saca / fib_boxes, 2)
                     
-                    # FORMATAÇÃO COMO TEXTO (IMPEDE O WORD DE ARREDONDAR)
+                    # FORMATAÇÃO PARA TEXTO (IMPEDE O WORD DE ALTERAR OS DADOS)
                     txt_total_saca = "{:.2f}".format(valor_total_saca).replace('.', ',')
                     txt_peso_g = "{:.2f}".format(valor_peso_g).replace('.', ',')
                     
