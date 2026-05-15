@@ -7,7 +7,6 @@ from datetime import date
 
 # 1. INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
-
 st.title("Gerador de Shippers - New Post")
 
 # 2. ENTRADA
@@ -43,27 +42,23 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA CONFORME VÍDEO E PLANILHA NEW POST ---
+                    # --- CORREÇÃO DO CÁLCULO E DAS VARIÁVEIS ---
                     peso_total_geral = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # PASSO 1: TOTAL QUANTITY PER OVERPACK (K)
-                    # Valor mestre: Peso da Planilha / Sacas informadas
-                    valor_total_saca = peso_total_planilha / sacas_f 
+                    # 1. TOTAL POR SACA (K) - DIVISÃO DIRETA DO TOTAL
+                    valor_total_saca = peso_total_geral / sacas_f 
                     
-                    # PASSO 2: FIBREBOARD (I)
-                    # Se for CGB com 7 sacas, trava em 4 caixas conforme sua referência
+                    # 2. FIBREBOARD (I)
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
                     else:
                         v_i = valor_total_saca / 4.5
                         fib_boxes = math.ceil(v_i) if (v_i - int(v_i)) > 0.50 else math.floor(v_i)
 
-                    # PASSO 3: PESO G (J)
-                    # Valor derivado: Total da saca / caixas
+                    # 3. PESO G (J) - DIVISÃO DO TOTAL DA SACA PELAS CAIXAS
                     valor_peso_g = valor_total_saca / fib_boxes
                     
-                    # --- FORMATAÇÃO PARA O WORD (STRING) ---
-                    # Transformamos em texto para o Python não "arredondar" no envio
+                    # FORMATAÇÃO PARA TEXTO (EVITA ARREDONDAMENTOS DO WORD)
                     txt_total_saca = "{:.2f}".format(valor_total_saca).replace('.', ',')
                     txt_peso_g = "{:.2f}".format(valor_peso_g).replace('.', ',')
                     
@@ -85,7 +80,9 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Sucesso! Saca: {txt_total_saca} | Caixa: {txt_peso_g}")
+                    st.success(f"✅ Gerado! Saca: {txt_total_saca} | Caixa: {txt_peso_g}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
+                else:
+                    st.error(f"Destino {cidade} não encontrado.")
     except Exception as e:
         st.error(f"Erro: {e}")
