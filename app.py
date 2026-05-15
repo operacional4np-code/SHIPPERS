@@ -7,7 +7,7 @@ from datetime import date
 
 # 1. INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
-st.title("Gerador de Shippers - New Post")
+st.title("Gerador de Shippers - New Post (Lógica de Otimização)")
 
 # 2. ENTRADA
 col1, col2 = st.columns(2)
@@ -42,51 +42,49 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- INÍCIO DA LÓGICA DA PLANILHA ---
+                    # --- INÍCIO DA LÓGICA DA PLANILHA (COLUNAS J, K, M) ---
                     peso_total_planilha = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
                     # PASSO 1: DEFINIR FIBREBOARD (I)
-                    # Valor base para decidir as caixas (Coluna K provisória)
-                    k_base = peso_total_planilha / sacas_f
-                    
+                    # Valor base para decidir as caixas
+                    k_provisorio = peso_total_planilha / sacas_f
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
                     else:
-                        v_i = k_base / 4.5
+                        v_i = k_provisorio / 4.5
                         sobra = v_i - int(v_i)
                         fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
 
                     # PASSO 2: AJUSTE DO Kg G (Coluna J) ATÉ M >= 0
-                    # Começamos com o cálculo exato e arredondamos
+                    # Começamos com o cálculo base arredondado
                     peso_g_ajustado = round((peso_total_planilha / sacas_f) / fib_boxes, 2)
                     
-                    # LOOP DE OTIMIZAÇÃO (Simula o ajuste manual da coluna J)
+                    # SIMULAÇÃO DA BUSCA DE OBJETIVO (Aumentar até o resíduo ser positivo)
                     while True:
-                        # Cálculo do Total que esse Peso G geraria no final
-                        # (J * I * Sacas)
+                        # Cálculo do Total Final que esse G geraria: (G * Caixas * Sacas)
                         total_simulado = round(peso_g_ajustado * fib_boxes * sacas_f, 2)
                         
-                        # Coluna M (Saldo)
+                        # Coluna M (Saldo/Resíduo)
                         saldo_m = round(total_simulado - peso_total_planilha, 2)
                         
                         if saldo_m >= 0:
-                            # Encontramos o valor positivo mais próximo de zero!
+                            # Encontramos o valor positivo mais próximo de zero
                             break
                         else:
-                            # Se saldo for negativo (ex: -1,27), subimos 0,01 no Kg G
+                            # Se for negativo, sobe 0,01 (ex: de 4,68 para 4,69)
                             peso_g_ajustado = round(peso_g_ajustado + 0.01, 2)
                     
-                    # PASSO 3: DEFINIR O TOTAL QUANTITY PER OVERPACK (K) FINAL
-                    # É o Peso G ajustado multiplicado pelas caixas (J * I)
+                    # PASSO 3: DEFINIR O TOTAL QUANTITY PER OVERPACK (K)
+                    # É o G ajustado multiplicado pelas caixas (J * I)
                     valor_k_final = round(peso_g_ajustado * fib_boxes, 2)
                     
-                    # FORMATAÇÃO PARA O WORD
+                    # FORMATAÇÃO PARA O WORD (STRING PARA NÃO ARREDONDAR)
                     txt_total_k = "{:.2f}".format(valor_k_final).replace('.', ',')
                     txt_peso_g = "{:.2f}".format(peso_g_ajustado).replace('.', ',')
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # 3. GERAÇÃO DO DOC
+                    # 3. GERAÇÃO
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
@@ -102,7 +100,7 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Otimização Concluída! G: {txt_peso_g} | Total K: {txt_total_k}")
+                    st.success(f"✅ Ajuste Fino Concluído! G: {txt_peso_g} | Total K: {txt_total_k}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
                     st.error("Destino não encontrado.")
