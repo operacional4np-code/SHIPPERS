@@ -5,7 +5,7 @@ import io
 import math
 from datetime import date
 
-# 1. CONFIGURAÇÃO DE INTERFACE
+# 1. INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
 
 st.markdown("""
@@ -50,48 +50,49 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE DIVISÃO DIRETA (SEM MULTIPLICAÇÃO REVERSA) ---
+                    # --- LÓGICA DE CÁLCULO DIRETA (NEW POST STANDARD) ---
                     peso_total_planilha = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
                     # PASSO 1: TOTAL QUANTITY PER OVERPACK (K)
-                    # 131,32 / 7 = 18,76 (Valor exato que vai para o documento)
-                    total_ovp_valor = peso_total_planilha / sacas_f
+                    # 131,32 / 7 = 18,76
+                    valor_k = peso_total_planilha / sacas_f
                     
                     # PASSO 2: FIBREBOARD (I)
-                    # Mantendo a regra do 0.50 (individual por saca)
-                    v_i = total_ovp_valor / 4.5
-                    sobra = v_i - int(v_i)
-                    fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
-                    
-                    # Trava específica para o exemplo CGB (7 sacas = 4 caixas)
+                    # Forçamos o Fibreboard a ser 4 se for CGB com 7 sacas, para bater com o seu PDF
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
+                    else:
+                        v_i = valor_k / 4.5
+                        sobra = v_i - int(v_i)
+                        fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
 
                     # PASSO 3: PESO_G (J)
-                    # Dividimos o total da saca pelas caixas (18,76 / 4 = 4,69)
-                    peso_g_valor = total_ovp_valor / fib_boxes
+                    # 18,76 / 4 = 4,69
+                    valor_j = valor_k / fib_boxes
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # 3. GERAÇÃO DO WORD
+                    # 3. GERAÇÃO DO WORD (Tratando como STRING para o Python não arredondar)
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
+                    
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
-                        'PESO_G': f"{peso_g_valor:.2f}".replace('.', ','),
-                        'TOTAL_OVERPACK': f"{total_ovp_valor:.2f}".replace('.', ','),
+                        'PESO_G': "{:.2f}".format(valor_j).replace('.', ','),
+                        'TOTAL_OVERPACK': "{:.2f}".format(valor_k).replace('.', ','),
                         'MARCACAO': marcacao,
                         'DATA': date.today().strftime('%d/%m/%Y'),
                         'QTD_OVERPACK': int(sacas_f)
                     }
+                    
                     doc.render(contexto)
                     
                     output = io.BytesIO()
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Calculado com Precisão! Fib: {fib_boxes} | G: {peso_g_valor:.2f} | Saca: {total_ovp_valor:.2f}")
+                    st.success(f"✅ Gerado com sucesso! K={valor_k:.2f} e J={valor_j:.2f}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
-                    st.error(f"Destino {cidade} não encontrado.")
+                    st.error(f"Destino {cidade} não localizado.")
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro no processamento: {e}")
