@@ -8,7 +8,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 # 1. INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
-st.title("Gerador de Shippers - New Post (Ajuste de Precisão)")
+st.title("Gerador de Shippers - New Post (Lógica de Compensação)")
 
 # 2. ENTRADA
 col1, col2 = st.columns(2)
@@ -17,7 +17,7 @@ with col1:
 with col2:
     sacas_f = st.number_input("Quantidade de Sacas:", min_value=1, step=1)
 
-file = st.file_uploader("Upload da Planilha de Coleta", type=["xlsx"])
+file = st.file_uploader("Upload da Planilha", type=["xlsx"])
 
 if file and sigla:
     try:
@@ -43,42 +43,52 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE ACORDO COM A PLANILHA (COLUNAS J, K, M) ---
-                    # Usamos Decimal para garantir precisão de centavos
-                    peso_total_planilha = Decimal(str(pd.to_numeric(df_f[c_peso], errors='coerce').sum()))
-                    qtd_sacas = Decimal(str(sacas_f))
+                    # --- VARIÁVEIS DE ACORDO COM AS SUAS FÓRMULAS ---
+                    # Peso Real da Planilha (Coluna G na sua explicação)
+                    g7_peso_real = Decimal(str(pd.to_numeric(df_f[c_peso], errors='coerce').sum()))
+                    f7_qtd_sacas = Decimal(str(sacas_f))
                     
-                    # 1. DEFINIR FIBREBOARD (I)
+                    # PASSO 1: DEFINIR FIBREBOARD (Coluna I)
                     if sigla == "CGB" and sacas_f == 7:
-                        fib_boxes = Decimal('4')
+                        i7_fib = Decimal('4')
                     else:
-                        v_i = float(peso_total_planilha / qtd_sacas) / 4.5
-                        fib_boxes = Decimal(str(math.ceil(v_i) if (v_i - int(v_i)) > 0.50 else math.floor(v_i)))
+                        v_i = float(g7_peso_real / f7_qtd_sacas) / 4.5
+                        i7_fib = Decimal(str(math.ceil(v_i) if (v_i - int(v_i)) > 0.50 else math.floor(v_i)))
 
-                    # 2. AJUSTE DO Kg G (J) - LOOP DE BUSCA DE OBJETIVO
-                    # Começamos com o cálculo base: (Total / Sacas) / Caixas
-                    peso_g_ajustado = (peso_total_planilha / qtd_sacas / fib_boxes).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    # PASSO 2: AJUSTE DO Kg G (Coluna J) PARA ZERAR A COLUNA M
+                    # Iniciamos o J com o cálculo base
+                    j7_kg_g = (g7_peso_real / f7_qtd_sacas / i7_fib).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                     
-                    # SIMULAÇÃO DA COLUNA M: O peso calculado não pode ser menor que o da planilha
-                    # Se (G * Caixas * Sacas) < Peso Total, aumentamos o G até o saldo ser positivo
-                    while (peso_g_ajustado * fib_boxes * qtd_sacas) < peso_total_planilha:
-                        peso_g_ajustado += Decimal('0.01')
+                    while True:
+                        # Coluna K = J * I (Peso da saca)
+                        k7_saca = j7_kg_g * i7_fib
+                        # Coluna L = K * F (Peso total simulado)
+                        l7_total_simulado = k7_saca * f7_qtd_sacas
+                        # Coluna M = L - G (Diferença/Saldo)
+                        m7_saldo = l7_total_simulado - g7_peso_real
+                        
+                        if m7_saldo >= 0:
+                            # Se a coluna M zerou ou ficou positiva, o Kg G (J) está correto
+                            break
+                        else:
+                            # Se M for negativa, subimos o Kg G (J) em 0.01
+                            j7_kg_g += Decimal('0.01')
                     
-                    # 3. TOTAL QUANTITY PER OVERPACK (K)
-                    # Resultado do G ajustado multiplicado pelas caixas (J * I)
-                    valor_total_ovp = peso_g_ajustado * fib_boxes
+                    # VALORES FINAIS AJUSTADOS
+                    valor_j_final = j7_kg_g
+                    valor_k_final = j7_kg_g * i7_fib
                     
-                    # FORMATAÇÃO PARA TEXTO (IMPEDE ARREDONDAMENTOS INDEVIDOS)
-                    txt_total_k = "{:.2f}".format(valor_total_ovp).replace('.', ',')
-                    txt_peso_g = "{:.2f}".format(peso_g_ajustado).replace('.', ',')
+                    # FORMATAÇÃO PARA O WORD (IMPEDE ARREDONDAMENTOS)
+                    txt_kg_g = "{:.2f}".format(valor_j_final).replace('.', ',')
+                    txt_total_k = "{:.2f}".format(valor_k_final).replace('.', ',')
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # 4. GERAÇÃO
+                    # 3. GERAÇÃO
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
-                        'FIBREBOARD': int(fib_boxes),
-                        'PESO_G': txt_peso_g,
+                        'FIBREBOARD': int(i7_fib),
+                        'PESO_G': txt_kg_g,
                         'TOTAL_OVERPACK': txt_total_k,
                         'MARCACAO': marcacao,
                         'DATA': date.today().strftime('%d/%m/%Y'),
@@ -90,9 +100,9 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Ajuste Aplicado! G: {txt_peso_g} | Total OVP: {txt_total_k}")
+                    st.success(f"✅ Lógica da Planilha Aplicada! M: {m7_saldo} | G: {txt_kg_g} | K: {txt_total_k}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
-                    st.error("Destino não encontrado.")
+                    st.error("Destino não localizado.")
     except Exception as e:
-        st.error(f"Erro técnico: {e}")
+        st.error(f"Erro: {e}")
