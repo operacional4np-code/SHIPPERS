@@ -5,17 +5,15 @@ import io
 import math
 from datetime import date
 
-# --- LÓGICA DE CÁLCULO (PADRÃO EXCEL) ---
+# --- LÓGICA DE CÁLCULO ---
 def arredondar_I(valor):
-    """Regra: > 0.50 sobe, <= 0.50 mantém"""
     fracao = valor - int(valor)
     return math.ceil(valor) if fracao > 0.50 else math.floor(valor)
 
 def gerar_sequencia_sacas(n):
-    """Gera a sequência #1 #2 #3... conforme a quantidade de sacas"""
     return " ".join([f"#{i+1}" for i in range(int(n))])
 
-# --- INTERFACE VISUAL (PADRÃO NEW POST) ---
+# --- INTERFACE VISUAL ---
 st.set_page_config(page_title="Gerador de Shippers", layout="wide")
 
 st.markdown("""
@@ -30,11 +28,10 @@ st.markdown("""
         height: 3em;
         border: none;
     }
-    h1 { color: #003366; text-align: center; font-family: sans-serif; margin-bottom: 30px; }
+    h1 { color: #003366; text-align: center; margin-bottom: 25px; }
     </style>
     """, unsafe_allow_index=True)
 
-# Título alterado conforme solicitado
 st.title("Gerador de Shippers")
 
 col1, col2 = st.columns(2)
@@ -46,22 +43,25 @@ with col2:
 file = st.file_uploader("Upload da Planilha de Coleta", type=["xlsx"])
 
 if file and sigla:
+    # Lemos a planilha bruta
     df_raw = pd.read_excel(file, header=None)
     
-    # Busca dinâmica da linha de títulos (procura por DESTINO)
+    # Busca dinâmica da linha de títulos (procura DESTINO ou PESO)
     header_row = None
     for i in range(min(30, len(df_raw))):
         linha = [str(val).upper().strip() for val in df_raw.iloc[i].values]
-        if "DESTINO" in linha:
+        if "DESTINO" in linha or "PESO" in linha:
             header_row = i
             break
             
     if header_row is not None:
+        # Carrega os dados com o cabeçalho correto
         df = pd.read_excel(file, header=header_row)
-        df.columns = [str(c).strip().upper() for c in df.columns]
+        # Limpeza agressiva nos nomes das colunas
+        df.columns = [str(c).strip().upper().replace('\n', '').replace('\r', '') for c in df.columns]
 
-        # Botão Verde Padrão
         if st.button(f"GERAR SHIPPER {sigla}"):
+            # Tenta encontrar as colunas por aproximação
             col_dest = next((c for c in df.columns if "DESTINO" in c), None)
             col_peso = next((c for c in df.columns if "PESO" in c), None)
 
@@ -69,29 +69,26 @@ if file and sigla:
                 mapa = {"POA": "PORTO ALEGRE", "CWB": "CURITIBA", "MAO": "MANAUS", "CGB": "CUIABA"}
                 termo = mapa.get(sigla, sigla)
                 
-                # Filtra o destino e remove linhas de total
+                # Filtra e remove linhas que contenham "TOTAL"
                 df_f = df[df[col_dest].astype(str).str.contains(termo, na=False, case=False)]
-                df_f = df_f[~df_f[col_dest].astype(str).str.contains("TOTAL", na=False, case=False)]
+                df_f = df_f[~df_f[col_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # Execução dos Cálculos
+                    # PESO TOTAL (G)
                     peso_g = pd.to_numeric(df_f[col_peso], errors='coerce').sum()
                     
-                    # Coluna I
+                    # FIB BOXES (I)
                     valor_i = peso_g / sacas_f
                     fib_boxes_i = arredondar_I(valor_i)
                     
-                    # Coluna J (Saca kg) com arredondamento para cima na 2ª casa decimal
-                    total_unidades = sacas_f * fib_boxes_i
-                    if total_unidades > 0:
-                        saca_kg_j = math.ceil((peso_g / total_unidades) * 100) / 100
-                    else:
-                        saca_kg_j = 0
+                    # SACA KG (J) - Arredondamento para cima 2 casas
+                    total_unid = sacas_f * fib_boxes_i
+                    saca_kg_j = math.ceil((peso_g / total_unid) * 100) / 100 if total_unid > 0 else 0
                     
-                    # Coluna K (Total Overpack)
-                    total_overpack_k = total_unidades * saca_kg_j
+                    # TOTAL OVERPACK (K)
+                    total_ovp = total_unid * saca_kg_j
                     
-                    # Geração da Marcação (#1 #2...)
+                    # Etiqueta MARCACAO (#1 #2...)
                     texto_marcacao = gerar_sequencia_sacas(sacas_f)
                     
                     try:
@@ -99,4 +96,24 @@ if file and sigla:
                         contexto = {
                             'FIBREBOARD': int(fib_boxes_i),
                             'PESO_G': f"{saca_kg_j:.2f}".replace('.', ','),
-                            'TOTAL_OVER
+                            'TOTAL_OVERPACK': f"{total_ovp:.2f}".replace('.', ','),
+                            'MARCACAO': texto_marcacao,
+                            'DATA': date.today().strftime('%d/%m/%Y'),
+                            'QTD_OVERPACK': int(sacas_f)
+                        }
+                        doc.render(contexto)
+                        
+                        output = io.BytesIO()
+                        doc.save(output)
+                        output.seek(0)
+                        
+                        st.success(f"✅ Gerado com sucesso! Peso: {peso_g}kg")
+                        st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
+                    except Exception as e:
+                        st.error(f"Erro no modelo: {e}")
+                else:
+                    st.error(f"Não encontramos '{termo}' na coluna {col_dest}.")
+            else:
+                st.error(f"Colunas não identificadas. Colunas lidas: {list(df.columns)}")
+    else:
+        st.error("Não foi possível localizar os títulos (DESTINO/PESO) na planilha.")
