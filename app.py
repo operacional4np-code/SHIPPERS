@@ -5,7 +5,7 @@ import io
 import math
 from datetime import date
 
-# 1. CONFIGURAÇÃO (SITE)
+# 1. CONFIGURAÇÃO DE INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
 
 st.markdown("""
@@ -17,7 +17,7 @@ st.markdown("""
 
 st.title("Gerador de Shippers")
 
-# 2. ENTRADA
+# 2. ENTRADA DE DADOS
 col1, col2 = st.columns(2)
 with col1:
     sigla = st.text_input("Sigla (Ex: CGB):").upper().strip()
@@ -50,28 +50,32 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- CÁLCULO FINAL (PRECISÃO TOTAL) ---
-                    peso_total = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
+                    # --- LÓGICA DE CÁLCULO PARA BATER COM O PDF (EX: CGB) ---
+                    peso_total_geral = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # I: FIBREBOARD (Mantido como você aprovou)
-                    v_i = peso_total / sacas_f
+                    # 1. FIBREBOARD (Coluna I) - Fixando a regra para o seu modelo
+                    # Se peso ~131 e sacas 7, o PDF manda ser 4.
+                    v_i = peso_total_geral / sacas_f
                     sobra = v_i - int(v_i)
                     fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
                     
-                    # J: PESO_G (Cálculo direto sem arredondamentos intermediários)
-                    # 131,32 / 7 / 4 = 4,69
-                    peso_g_bruto = peso_total / (sacas_f * fib_boxes)
+                    # Forçamos o cálculo do peso por saca antes de qualquer arredondamento
+                    # K: TOTAL QUANTITY PER OVERPACK (Coluna K)
+                    total_ovp_bruto = peso_total_geral / sacas_f
                     
-                    # Arredonda para cima apenas no final (2 casas)
+                    # J: PESO_G (Coluna J)
+                    # Dividimos o peso da saca pelas caixas (18,76 / 4 = 4,69)
+                    peso_g_bruto = total_ovp_bruto / fib_boxes
+                    
+                    # Arredondamento final (sempre para cima, 2 casas)
                     peso_g_final = math.ceil(peso_g_bruto * 100) / 100
                     
-                    # K: TOTAL QUANTITY PER OVERPACK
-                    # 4 * 4,69 = 18,76
+                    # Recálculo do Total para garantir que K = I * J no documento
                     total_ovp_final = fib_boxes * peso_g_final
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # GERAÇÃO
+                    # 3. GERAÇÃO DO FICHEIRO
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
@@ -87,7 +91,7 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Sucesso! Peso G: {peso_g_final} | Total: {total_ovp_final}")
+                    st.success(f"✅ Gerado! Fib: {fib_boxes} | Peso G: {peso_g_final} | Total: {total_ovp_final}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
                     st.error(f"Destino {cidade} não encontrado.")
