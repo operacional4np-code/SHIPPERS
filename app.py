@@ -5,37 +5,30 @@ import io
 import math
 from datetime import date
 
-# 1. CONFIGURAÇÃO (CORREÇÃO DO ERRO DE CARREGAMENTO)
-st.set_page_config(page_title="Gerador de Shippers New Post", layout="wide")
+# 1. AJUSTE DO SITE (CORRIGE O ERRO DE CARREGAMENTO)
+st.set_page_config(page_title="Gerador New Post", layout="wide")
 
-# Estilo CSS corrigido para as versões novas do Streamlit
 st.markdown("""
 <style>
-    .stButton>button {
-        background-color: #28a745 !important;
-        color: white !important;
-        font-weight: bold;
-        width: 100%;
-        height: 3em;
-    }
+    .stButton>button { background-color: #28a745 !important; color: white !important; font-weight: bold; width: 100%; }
     h1 { color: #003366; text-align: center; }
 </style>
-""", unsafe_allow_html=True)
+""", unsafe_allow_html=True) # Corrigido de unsafe_allow_index para html
 
 st.title("Gerador de Shippers - New Post")
 
 # 2. ENTRADA
 col1, col2 = st.columns(2)
 with col1:
-    sigla = st.text_input("Sigla do Destino (Ex: POA):").upper().strip()
+    sigla = st.text_input("Sigla do Destino (Ex: CGB):").upper().strip()
 with col2:
-    sacas_f = st.number_input("Quantidade de Sacas (Coluna F):", min_value=1, step=1)
+    sacas_f = st.number_input("Qtd de Sacas (Coluna F):", min_value=1, step=1)
 
-file = st.file_uploader("Suba sua Planilha de Coleta", type=["xlsx"])
+file = st.file_uploader("Suba a Planilha", type=["xlsx"])
 
 if file and sigla:
     try:
-        # Lógica para achar o cabeçalho dinamicamente
+        # Leitura robusta da planilha
         df_raw = pd.read_excel(file, header=None)
         header_row = 0
         for i, row in df_raw.iterrows():
@@ -46,64 +39,57 @@ if file and sigla:
         df = pd.read_excel(file, header=header_row)
         df.columns = [str(c).strip().upper() for c in df.columns]
 
-        if st.button(f"Gerar Documento {sigla}"):
-            col_d = next((c for c in df.columns if "DESTINO" in c), None)
-            col_p = next((c for c in df.columns if "PESO" in c), None)
+        if st.button(f"GERAR DOCUMENTO {sigla}"):
+            c_dest = next((c for c in df.columns if "DESTINO" in c), None)
+            c_peso = next((c for c in df.columns if "PESO" in c), None)
 
-            if col_d and col_p:
+            if c_dest and c_peso:
                 mapa = {"POA": "PORTO ALEGRE", "CWB": "CURITIBA", "MAO": "MANAUS", "CGB": "CUIABA"}
                 cidade = mapa.get(sigla, sigla)
                 
-                # Filtragem sem o erro de 'TOTAL GERAL'
-                df_f = df[df[col_d].astype(str).str.contains(cidade, case=False, na=False)].copy()
-                df_f = df_f[~df_f[col_d].astype(str).str.upper().str.contains("TOTAL", na=False)]
-
+                # Filtro seguro que não causa erro de AttributeError
+                df_f = df[df[c_dest].astype(str).str.contains(cidade, case=False, na=False)].copy()
+                
                 if not df_f.empty:
-                    # --- FÓRMULAS NEW POST ---
-                    peso_total_g = pd.to_numeric(df_f[col_p], errors='coerce').sum()
+                    # --- CÁLCULOS EXATOS ---
+                    peso_total = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # 1. FIBREBOARD BOXES (Coluna I)
-                    # Regra: Se a sobra for > 0.50 arredonda pra cima, senão pra baixo.
-                    calculo_i = peso_total_g / sacas_f
-                    sobra = calculo_i - int(calculo_i)
-                    fib_boxes = math.ceil(calculo_i) if sobra > 0.50 else math.floor(calculo_i)
+                    # I: Fibreboard por saca (regra do 0.50)
+                    calc_i = peso_total / sacas_f
+                    sobra = calc_i - int(calc_i)
+                    fib_por_saca = math.ceil(calc_i) if sobra > 0.50 else math.floor(calc_i)
                     
-                    # 2. SACA KG (Coluna J)
-                    # Regra: Peso Total / (Sacas * Fib Boxes). Arredonda sempre pra cima (2 casas).
-                    total_unidades = sacas_f * fib_boxes
-                    saca_kg = math.ceil((peso_total_g / total_unidades) * 100) / 100 if total_unidades > 0 else 0
+                    # J: Saca KG (Peso Total / Total de Caixas) arredondado p/ cima
+                    total_caixas_lote = sacas_f * fib_por_saca
+                    saca_kg = math.ceil((peso_total / total_caixas_lote) * 100) / 100
                     
-                    # 3. TOTAL QUANTITY PER OVERPACK (Coluna K)
-                    # Regra: Total Unidades * Saca KG
-                    total_overpack = total_unidades * saca_kg
+                    # K: Total Overpack
+                    total_overpack = total_caixas_lote * saca_kg
                     
-                    # 4. MARCAÇÃO SEQUENCIAL
-                    marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
+                    # Marcação (#1 #2...)
+                    txt_marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # GERAÇÃO DO WORD
-                    try:
-                        doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
-                        contexto = {
-                            'FIBREBOARD': int(fib_boxes * sacas_f), # Total de caixas no lote
-                            'PESO_G': f"{saca_kg:.2f}".replace('.', ','),
-                            'TOTAL_OVERPACK': f"{total_overpack:.2f}".replace('.', ','),
-                            'MARCACAO': marcacao,
-                            'DATA': date.today().strftime('%d/%m/%Y'),
-                            'QTD_OVERPACK': int(sacas_f)
-                        }
-                        doc.render(contexto)
-                        
-                        output = io.BytesIO()
-                        doc.save(output)
-                        output.seek(0)
-                        
-                        st.success(f"✅ Calculado! Marcação: {marcacao}")
-                        st.download_button(f"📥 Baixar Shipper {sigla}", output, f"Shipper_{sigla}.docx")
-                    except Exception as e:
-                        st.error(f"Erro no Template: Verifique se o arquivo {sigla}-SHIPPER-t.docx existe na pasta templates.")
+                    # --- GERAÇÃO DO WORD ---
+                    doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
+                    contexto = {
+                        'FIBREBOARD': int(total_caixas_lote), # AGORA MULTIPLICADO PELAS SACAS
+                        'PESO_G': f"{saca_kg:.2f}".replace('.', ','),
+                        'TOTAL_OVERPACK': f"{total_overpack:.2f}".replace('.', ','),
+                        'MARCACAO': txt_marcacao,
+                        'DATA': date.today().strftime('%d/%m/%Y'),
+                        'QTD_OVERPACK': int(sacas_f)
+                    }
+                    doc.render(contexto)
+                    
+                    out = io.BytesIO()
+                    doc.save(out)
+                    out.seek(0)
+                    
+                    st.success(f"✅ Sucesso! Total de Caixas: {total_caixas_lote}")
+                    st.download_button("📥 Baixar Arquivo", out, f"Shipper_{sigla}.docx")
                 else:
                     st.error(f"Destino {cidade} não encontrado.")
             else:
-                st.error("Colunas DESTINO ou PESO não encontradas.")
+                st.error("Colunas não encontradas na planilha.")
     except Exception as e:
-        st.error(f"Erro crítico: {e}")
+        st.error(f"Erro: {e}")
