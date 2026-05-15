@@ -23,7 +23,7 @@ st.markdown("""
 }
 h1 { color: #003366; text-align: center; }
 </style>
-""", unsafe_allow_index=True)
+""", unsafe_allow_html=True)
 
 st.title("Gerador de Shippers")
 
