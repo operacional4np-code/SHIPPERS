@@ -8,23 +8,16 @@ from datetime import date
 # 1. INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
 
-st.markdown("""
-<style>
-    .stButton>button { background-color: #28a745 !important; color: white !important; font-weight: bold; width: 100%; height: 3.5em; }
-    h1 { color: #003366; text-align: center; }
-</style>
-""", unsafe_allow_html=True)
-
 st.title("Gerador de Shippers - New Post")
 
 # 2. ENTRADA
 col1, col2 = st.columns(2)
 with col1:
-    sigla = st.text_input("Sigla do Destino (Ex: CGB):").upper().strip()
+    sigla = st.text_input("Sigla (Ex: CGB):").upper().strip()
 with col2:
-    sacas_f = st.number_input("Quantidade de Sacas (Overpacks):", min_value=1, step=1)
+    sacas_f = st.number_input("Quantidade de Sacas:", min_value=1, step=1)
 
-file = st.file_uploader("Upload da Planilha de Coleta", type=["xlsx"])
+file = st.file_uploader("Upload da Planilha", type=["xlsx"])
 
 if file and sigla:
     try:
@@ -50,54 +43,49 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE PRECISÃO ABSOLUTA ---
-                    peso_total_planilha = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
+                    # --- LÓGICA CONFORME VÍDEO E PLANILHA NEW POST ---
+                    peso_total_geral = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # CÁLCULO 1: TOTAL POR SACA (K) - DIVISÃO DIRETA
-                    # Ex CGB: 131,32 / 7 = 18,76
-                    k_bruto = peso_total_planilha / sacas_f
+                    # PASSO 1: TOTAL QUANTITY PER OVERPACK (K)
+                    # Valor mestre: Peso da Planilha / Sacas informadas
+                    valor_total_saca = peso_total_planilha / sacas_f 
                     
-                    # CÁLCULO 2: FIBREBOARD (I)
-                    # Regra de negócio ou trava para CGB
+                    # PASSO 2: FIBREBOARD (I)
+                    # Se for CGB com 7 sacas, trava em 4 caixas conforme sua referência
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
                     else:
-                        v_i = k_bruto / 4.5
-                        sobra = v_i - int(v_i)
-                        fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
+                        v_i = valor_total_saca / 4.5
+                        fib_boxes = math.ceil(v_i) if (v_i - int(v_i)) > 0.50 else math.floor(v_i)
 
-                    # CÁLCULO 3: PESO G (J) - DIVISÃO DIRETA
-                    # Ex CGB: 18,76 / 4 = 4,69
-                    j_bruto = k_bruto / fib_boxes
+                    # PASSO 3: PESO G (J)
+                    # Valor derivado: Total da saca / caixas
+                    valor_peso_g = valor_total_saca / fib_boxes
                     
-                    # --- BLINDAGEM CONTRA ARREDONDAMENTO ---
-                    # Transformamos em texto com 2 casas decimais ANTES de qualquer outra operação
-                    txt_total_saca = "{:.2f}".format(k_bruto).replace('.', ',')
-                    txt_peso_caixa = "{:.2f}".format(j_bruto).replace('.', ',')
+                    # --- FORMATAÇÃO PARA O WORD (STRING) ---
+                    # Transformamos em texto para o Python não "arredondar" no envio
+                    txt_total_saca = "{:.2f}".format(valor_total_saca).replace('.', ',')
+                    txt_peso_g = "{:.2f}".format(valor_peso_g).replace('.', ',')
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # 3. GERAÇÃO DO WORD
+                    # 3. GERAÇÃO
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
-                    
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
-                        'PESO_G': txt_peso_caixa,
+                        'PESO_G': txt_peso_g,
                         'TOTAL_OVERPACK': txt_total_saca,
                         'MARCACAO': marcacao,
                         'DATA': date.today().strftime('%d/%m/%Y'),
                         'QTD_OVERPACK': int(sacas_f)
                     }
-                    
                     doc.render(contexto)
                     
                     output = io.BytesIO()
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Sucesso! Saca: {txt_total_saca} | Caixa: {txt_peso_caixa}")
+                    st.success(f"✅ Sucesso! Saca: {txt_total_saca} | Caixa: {txt_peso_g}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
-                else:
-                    st.error(f"Destino {cidade} não localizado na planilha.")
     except Exception as e:
-        st.error(f"Erro inesperado: {e}")
+        st.error(f"Erro: {e}")
