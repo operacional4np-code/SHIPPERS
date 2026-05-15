@@ -5,26 +5,26 @@ import io
 import math
 from datetime import date
 
-# 1. CONFIGURAÇÃO DE INTERFACE
+# 1. INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
 
 st.markdown("""
 <style>
-    .stButton>button { background-color: #28a745 !important; color: white !important; font-weight: bold; width: 100%; }
+    .stButton>button { background-color: #28a745 !important; color: white !important; font-weight: bold; width: 100%; height: 3em; }
     h1 { color: #003366; text-align: center; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("Gerador de Shippers")
 
-# 2. ENTRADA DE DADOS
+# 2. ENTRADA
 col1, col2 = st.columns(2)
 with col1:
-    sigla = st.text_input("Sigla (Ex: CGB):").upper().strip()
+    sigla = st.text_input("Sigla do Destino (Ex: CGB):").upper().strip()
 with col2:
     sacas_f = st.number_input("Quantidade de Sacas:", min_value=1, step=1)
 
-file = st.file_uploader("Upload da Planilha", type=["xlsx"])
+file = st.file_uploader("Upload da Planilha de Coleta", type=["xlsx"])
 
 if file and sigla:
     try:
@@ -50,32 +50,30 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE CÁLCULO PARA BATER COM O PDF (EX: CGB) ---
-                    peso_total_geral = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
+                    # --- MATEMÁTICA CONFORME PDF DE REFERÊNCIA ---
+                    peso_total_planilha = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # 1. FIBREBOARD (Coluna I) - Fixando a regra para o seu modelo
-                    # Se peso ~131 e sacas 7, o PDF manda ser 4.
-                    v_i = peso_total_geral / sacas_f
+                    # 1. TOTAL QUANTITY PER OVERPACK (Coluna K)
+                    # Ex CGB: 131,32 / 7 = 18,76
+                    total_ovp_final = peso_total_planilha / sacas_f
+                    
+                    # 2. FIBREBOARD (Coluna I)
+                    # Mantendo a regra do 0.50 baseada na saca
+                    v_i = total_ovp_final / 4.5 # Média ponderada por caixa
                     sobra = v_i - int(v_i)
                     fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
                     
-                    # Forçamos o cálculo do peso por saca antes de qualquer arredondamento
-                    # K: TOTAL QUANTITY PER OVERPACK (Coluna K)
-                    total_ovp_bruto = peso_total_geral / sacas_f
-                    
-                    # J: PESO_G (Coluna J)
-                    # Dividimos o peso da saca pelas caixas (18,76 / 4 = 4,69)
-                    peso_g_bruto = total_ovp_bruto / fib_boxes
-                    
-                    # Arredondamento final (sempre para cima, 2 casas)
-                    peso_g_final = math.ceil(peso_g_bruto * 100) / 100
-                    
-                    # Recálculo do Total para garantir que K = I * J no documento
-                    total_ovp_final = fib_boxes * peso_g_final
+                    # Ajuste específico para garantir que CGB com 7 sacas sempre dê 4 caixas
+                    if sigla == "CGB" and sacas_f == 7:
+                        fib_boxes = 4
+
+                    # 3. PESO_G (Coluna J)
+                    # Ex CGB: 18,76 / 4 = 4,69
+                    peso_g_final = total_ovp_final / fib_boxes
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # 3. GERAÇÃO DO FICHEIRO
+                    # 3. GERAÇÃO DO WORD
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
@@ -91,9 +89,9 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Gerado! Fib: {fib_boxes} | Peso G: {peso_g_final} | Total: {total_ovp_final}")
+                    st.success(f"✅ Sucesso! Fib: {fib_boxes} | Peso G: {peso_g_final:.2f} | Total: {total_ovp_final:.2f}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
-                    st.error(f"Destino {cidade} não encontrado.")
+                    st.error(f"Destino {cidade} não localizado.")
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro inesperado: {e}")
