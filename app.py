@@ -44,7 +44,6 @@ if file and sigla:
 
                 if not df_f.empty:
                     # --- LÓGICA DE PRECISÃO (COLUNAS J, K e M) ---
-                    # Usamos Decimal para garantir que 4,69 * 4 seja EXATAMENTE 18,76
                     peso_total_planilha = Decimal(str(pd.to_numeric(df_f[c_peso], errors='coerce').sum()))
                     qtd_sacas = Decimal(str(sacas_f))
                     
@@ -55,20 +54,21 @@ if file and sigla:
                         v_i = float(peso_total_planilha / qtd_sacas) / 4.5
                         fib_boxes = Decimal(str(math.ceil(v_i) if (v_i - int(v_i)) > 0.50 else math.floor(v_i)))
 
-                    # PASSO 2: AJUSTE DO Kg G (Coluna J) - BUSCA PELO SALDO POSITIVO
-                    # Começamos com o cálculo base
-                    kg_g = (peso_total_planilha / qtd_sacas / fib_boxes).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    # PASSO 2: AJUSTE DO Kg G (Coluna J) - BUSCA PELO SALDO POSITIVO NA COLUNA M
+                    # Cálculo base: (Peso Total / Sacas) / Caixas
+                    g_inicial = (peso_total_planilha / qtd_sacas) / fib_boxes
+                    kg_g = g_inicial.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                     
-                    # SIMULAÇÃO DA COLUNA M: O peso calculado não pode ser menor que o real
-                    # Enquanto (G * Caixas * Sacas) < Peso Real, aumentamos o G
+                    # LOOP DE AJUSTE (Simula você alterando a célula J até a M zerar)
+                    # Enquanto o total calculado for menor que o peso real da planilha, subimos o Kg G
                     while (kg_g * fib_boxes * qtd_sacas) < peso_total_planilha:
                         kg_g += Decimal('0.01')
                     
                     # PASSO 3: TOTAL QUANTITY PER OVERPACK (Coluna K)
-                    # É obrigatoriamente o resultado de G * Caixas
-                    total_overpack = kg_g * fib_boxes
+                    # É obrigatoriamente o resultado do Kg G ajustado vezes as caixas (J * I)
+                    total_overpack = (kg_g * fib_boxes).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                     
-                    # FORMATAÇÃO PARA O WORD (TEXTO FIXO)
+                    # FORMATAÇÃO PARA O WORD
                     txt_kg_g = "{:.2f}".format(kg_g).replace('.', ',')
                     txt_total_k = "{:.2f}".format(total_overpack).replace('.', ',')
                     
