@@ -8,9 +8,9 @@ from decimal import Decimal, ROUND_HALF_UP
 
 # 1. INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
-st.title("Gerador de Shippers - New Post (Lógica de Saldo)")
+st.title("Gerador de Shippers - New Post (Ajuste de Saldo M)")
 
-# 2. ENTRADA DE DADOS
+# 2. ENTRADA
 col1, col2 = st.columns(2)
 with col1:
     sigla = st.text_input("Sigla (Ex: CGB):").upper().strip()
@@ -43,48 +43,44 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- VARIÁVEIS CONFORME A SUA EXPLICAÇÃO ---
-                    # Peso Real (Coluna G da planilha)
-                    g7_peso_real = Decimal(str(pd.to_numeric(df_f[c_peso], errors='coerce').sum()))
-                    f7_qtd_sacas = Decimal(str(sacas_f))
+                    # --- LÓGICA DAS COLUNAS G, J, K, L, M ---
+                    # G: Peso Real da Planilha
+                    g_peso_real = Decimal(str(pd.to_numeric(df_f[c_peso], errors='coerce').sum()))
+                    f_sacas = Decimal(str(sacas_f))
                     
-                    # PASSO 1: FIBREBOARD (Coluna I)
+                    # I: Fibreboard (Caixas)
                     if sigla == "CGB" and sacas_f == 7:
-                        i7_fib = Decimal('4')
+                        i_boxes = Decimal('4')
                     else:
-                        v_i = float(g7_peso_real / f7_qtd_sacas) / 4.5
-                        i7_fib = Decimal(str(math.ceil(v_i) if (v_i - int(v_i)) > 0.50 else math.floor(v_i)))
+                        v_i = float(g_peso_real / f_sacas) / 4.5
+                        i_boxes = Decimal(str(math.ceil(v_i) if (v_i - int(v_i)) > 0.50 else math.floor(v_i)))
 
-                    # PASSO 2: AJUSTE DO Kg G (Coluna J) ATÉ M >= 0
-                    # Iniciamos o J com o cálculo base arredondado
-                    j7_kg_g = (g7_peso_real / f7_qtd_sacas / i7_fib).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    # J: Kg G (Início do teste)
+                    # Começamos com a conta base: (G / F) / I
+                    j_kg_g = (g_peso_real / f_sacas / i_boxes).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                     
-                    # LOOP DE BUSCA DE OBJETIVO (O que você faz manualmente no Excel)
+                    # LOOP DE AJUSTE (SIMULANDO A COLUNA M)
+                    # Enquanto L (K*F) - G for negativo, aumentamos J
                     while True:
-                        # K = J * I (Peso da saca)
-                        k7_saca = j7_kg_g * i7_fib
-                        # L = K * F (Peso total calculado/simulado)
-                        l7_peso_simulado = k7_saca * f7_qtd_sacas
-                        # M = L - G (Saldo)
-                        m7_saldo = l7_peso_simulado - g7_peso_real
+                        k_saca = (j_kg_g * i_boxes).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        l_total_simulado = k_saca * f_sacas
+                        m_saldo = l_total_simulado - g_peso_real
                         
-                        if m7_saldo >= 0:
-                            # Se a coluna M zerou ou ficou positiva, o Kg G está correto
+                        if m_saldo >= 0:
                             break
                         else:
-                            # Se M ainda for negativa, subimos o Kg G em 0.01
-                            j7_kg_g += Decimal('0.01')
-                    
-                    # VALORES FINAIS APÓS AJUSTE
-                    txt_kg_g = "{:.2f}".format(j7_kg_g).replace('.', ',')
-                    txt_total_k = "{:.2f}".format(j7_kg_g * i7_fib).replace('.', ',')
+                            j_kg_g += Decimal('0.01')
+
+                    # VALORES FINAIS PARA O WORD
+                    txt_kg_g = "{:.2f}".format(j_kg_g).replace('.', ',')
+                    txt_total_k = "{:.2f}".format(k_saca).replace('.', ',')
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # 3. GERAÇÃO DO DOCUMENTO
+                    # 3. GERAÇÃO
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
-                        'FIBREBOARD': int(i7_fib),
+                        'FIBREBOARD': int(i_boxes),
                         'PESO_G': txt_kg_g,
                         'TOTAL_OVERPACK': txt_total_k,
                         'MARCACAO': marcacao,
@@ -97,9 +93,9 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Lógica Aplicada! Kg G: {txt_kg_g} | Total K: {txt_total_k} | Saldo M: {m7_saldo}")
+                    st.success(f"✅ Saldo Ajustado! G: {txt_kg_g} | K: {txt_total_k} | M: {m_saldo}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
-                    st.error("Destino não localizado.")
+                    st.error("Destino não encontrado.")
     except Exception as e:
         st.error(f"Erro: {e}")
