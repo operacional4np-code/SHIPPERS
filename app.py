@@ -5,25 +5,22 @@ import io
 import math
 from datetime import date
 
-# ==========================================
-# 1. FUNÇÕES DE APOIO (Sempre no topo)
-# ==========================================
+# 1. FUNÇÕES DE APOIO
 def arredondar_I(valor):
-    """Regra: > 0.50 sobe, <= 0.50 mantém"""
     fracao = valor - int(valor)
-    return math.ceil(valor) if fracao > 0.50 else math.floor(valor)
+    if fracao > 0.50:
+        return math.ceil(valor)
+    else:
+        return math.floor(valor)
 
 def gerar_sequencia_sacas(n):
-    """Gera a etiqueta de marcação #1 #2 #3..."""
     try:
         n_int = int(n)
         return " ".join([f"#{i+1}" for i in range(n_int)])
     except:
         return ""
 
-# ==========================================
-# 2. CONFIGURAÇÃO VISUAL E TÍTULO
-# ==========================================
+# 2. CONFIGURAÇÃO VISUAL
 st.set_page_config(page_title="Gerador de Shippers", layout="wide")
 
 st.markdown("""
@@ -44,9 +41,7 @@ st.markdown("""
 
 st.title("Gerador de Shippers")
 
-# ==========================================
 # 3. ENTRADA DE DADOS
-# ==========================================
 col1, col2 = st.columns(2)
 with col1:
     sigla = st.text_input("Sigla do Destino (Ex: POA):").upper().strip()
@@ -55,12 +50,9 @@ with col2:
 
 file = st.file_uploader("Upload da Planilha de Coleta", type=["xlsx"])
 
-# ==========================================
-# 4. PROCESSAMENTO
-# ==========================================
+# 4. LÓGICA DE PROCESSAMENTO
 if file and sigla:
     try:
-        # Busca dinâmica do cabeçalho
         df_raw = pd.read_excel(file, header=None)
         header_row = None
         for i in range(min(30, len(df_raw))):
@@ -71,8 +63,7 @@ if file and sigla:
         
         if header_row is not None:
             df = pd.read_excel(file, header=header_row)
-            # Limpeza de nomes de colunas
-            df.columns = [str(c).strip().upper().replace('\n', '') for c in df.columns]
+            df.columns = [str(c).strip().upper().replace('\\n', '') for c in df.columns]
 
             if st.button(f"GERAR SHIPPER {sigla}"):
                 col_dest = next((c for c in df.columns if "DESTINO" in c), None)
@@ -86,7 +77,6 @@ if file and sigla:
                     df_f = df_f[~df_f[col_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                     if not df_f.empty:
-                        # Cálculos precisos conforme padrão New Post
                         peso_g = pd.to_numeric(df_f[col_peso], errors='coerce').sum()
                         fib_boxes_i = arredondar_I(peso_g / sacas_f)
                         
@@ -96,7 +86,6 @@ if file and sigla:
                         
                         texto_marcacao = gerar_sequencia_sacas(sacas_f)
                         
-                        # Geração do Documento
                         doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                         contexto = {
                             'FIBREBOARD': int(fib_boxes_i),
@@ -112,14 +101,13 @@ if file and sigla:
                         doc.save(output)
                         output.seek(0)
                         
-                        st.success(f"✅ Gerado! Marcação: {texto_marcacao}")
+                        st.success(f"✅ Gerado com sucesso!")
                         st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                     else:
-                        st.error(f"Destino '{termo}' não localizado.")
+                        st.error(f"Destino '{termo}' não encontrado.")
                 else:
-                    st.error("Colunas não identificadas na planilha.")
+                    st.error("Colunas DESTINO/PESO não identificadas.")
         else:
-            st.info("Planilha carregada. Clique no botão verde para gerar.")
-            
+            st.info("Planilha carregada. Clique no botão acima para gerar.")
     except Exception as e:
-        st.error(f"Ocorreu um erro: {e}")
+        st.error(f"Erro: {e}")
