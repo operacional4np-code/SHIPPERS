@@ -6,7 +6,7 @@ from datetime import date
 
 # 1. CONFIGURAÇÃO DA INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
-st.title("Gerador de Shippers - Automação Completa")
+st.title(" 📄 Gerador de Shippers - New post logística")
 st.markdown("Agora o sistema busca todas as informações (incluindo sacas) diretamente da planilha.")
 
 # 2. MAPA DE TRADUÇÃO (Sigla -> Termo na Planilha)
