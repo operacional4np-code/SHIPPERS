@@ -1,0 +1,7 @@
+__pycache__/
+.streamlit/
+*.xlsx
+*.docx
+!templates/modelo_shipper.docx
+outputs/
+*.zip
