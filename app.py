@@ -8,7 +8,7 @@ from datetime import date
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(page_title="Gerador de Shippers", layout="wide")
 
-# 2. VISUAL (BOTÃO VERDE E TÍTULO AZUL)
+# 2. VISUAL (PADRÃO NEW POST)
 st.markdown("""
 <style>
 .main { background-color: #f5f5f5; }
@@ -36,12 +36,14 @@ with col2:
 
 file = st.file_uploader("Upload da Planilha de Coleta", type=["xlsx"])
 
-# 4. PROCESSAMENTO
+# 4. PROCESSAMENTO PRINCIPAL
 if file and sigla:
     try:
-        # Busca o cabeçalho
+        # Leitura inicial
         df_raw = pd.read_excel(file, header=None)
         header_row = None
+        
+        # Localiza a linha do cabeçalho
         for i in range(min(30, len(df_raw))):
             linha = [str(val).upper().strip() for val in df_raw.iloc[i].values]
             if "DESTINO" in linha or "PESO" in linha:
@@ -57,7 +59,7 @@ if file and sigla:
                 c_peso = next((c for c in df.columns if "PESO" in c), None)
 
                 if c_dest and c_peso:
-                    # Mapa de Destinos
+                    # Mapa de Cidades
                     mapa = {"POA": "PORTO ALEGRE", "CWB": "CURITIBA", "MAO": "MANAUS", "CGB": "CUIABA"}
                     termo = mapa.get(sigla, sigla)
                     
@@ -65,7 +67,7 @@ if file and sigla:
                     df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                     if not df_f.empty:
-                        # Cálculos Exatos
+                        # Cálculos Matemáticos
                         peso_g = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                         
                         # Fib Boxes (I)
@@ -79,10 +81,10 @@ if file and sigla:
                         # Total Overpack (K)
                         t_ovp = t_unid * s_kg_j
                         
-                        # Marcação (#1 #2...)
+                        # Marcação Sequencial
                         txt_m = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
                         
-                        # Gerar Word
+                        # Processamento do Word
                         doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                         ctx = {
                             'FIBREBOARD': int(fib_i),
@@ -94,6 +96,7 @@ if file and sigla:
                         }
                         doc.render(ctx)
                         
+                        # Finalização
                         out = io.BytesIO()
                         doc.save(out)
                         out.seek(0)
@@ -103,8 +106,8 @@ if file and sigla:
                     else:
                         st.error(f"Destino '{termo}' não encontrado.")
                 else:
-                    st.error("Colunas não identificadas.")
+                    st.error("Colunas DESTINO ou PESO não detectadas.")
         else:
-            st.warning("Palavra 'DESTINO' não encontrada na planilha.")
+            st.warning("Aguardando detecção dos títulos na planilha...")
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Ocorreu um erro: {e}")
