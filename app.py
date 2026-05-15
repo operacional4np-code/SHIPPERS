@@ -7,7 +7,7 @@ from datetime import date
 
 # 1. INTERFACE
 st.set_page_config(page_title="Gerador New Post", layout="wide")
-st.title("Gerador de Shippers - New Post")
+st.title("Gerador de Shippers - New Post (Ajuste de Precisão)")
 
 # 2. ENTRADA
 col1, col2 = st.columns(2)
@@ -42,28 +42,42 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE PRECISÃO TOTAL ---
-                    peso_total_geral = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
+                    # --- LÓGICA DE ACORDO COM A PLANILHA (COLUNAS J, K, M) ---
+                    peso_total_destino = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # 1. TOTAL POR SACA (K) - DIVISÃO DIRETA E ARREDONDADA
-                    # Ex: 131,32 / 7 = 18,76 (Travado em 2 casas)
-                    valor_saca = round(peso_total_geral / sacas_f, 2)
+                    # 1. VALOR DA COLUNA K (TOTAL QUANTITY PER OVERPACK)
+                    # Baseado na inserção da quantidade de sacas
+                    valor_k = peso_total_destino / sacas_f
                     
-                    # 2. FIBREBOARD (I)
-                    # Regra do 0.50 ou trava para CGB
+                    # 2. FIBREBOARD (I) - Definindo as caixas
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
                     else:
-                        v_i = valor_saca / 4.5
+                        v_i = valor_k / 4.5
                         fib_boxes = math.ceil(v_i) if (v_i - int(v_i)) > 0.50 else math.floor(v_i)
 
-                    # 3. PESO G (J) - DIVISÃO DO VALOR DA SACA PELA QTD DE CAIXAS
-                    # Ex: 18,76 / 4 = 4,69
-                    valor_caixa = round(valor_saca / fib_boxes, 2)
+                    # 3. AJUSTE FINO DO PESO G (COLUNA J -> M)
+                    # Começamos com o cálculo base: (Total / Sacas) / Caixas
+                    peso_g_inicial = valor_k / fib_boxes
+                    peso_g_ajustado = round(peso_g_inicial, 2)
                     
-                    # --- CONVERSÃO PARA TEXTO (IMPEDE ARREDONDAMENTO DO WORD) ---
-                    txt_saca = "{:.2f}".format(valor_saca).replace('.', ',')
-                    txt_caixa = "{:.2f}".format(valor_caixa).replace('.', ',')
+                    # Simulação da Coluna M: Precisamos que (Peso_G * Caixas * Sacas) >= Peso_Total
+                    # e que a diferença seja a menor possível (próxima de zero)
+                    while True:
+                        total_calculado = round(peso_g_ajustado * fib_boxes * sacas_f, 2)
+                        residuo = round(total_calculado - peso_total_destino, 2)
+                        
+                        if residuo >= 0:
+                            break # Encontramos o número positivo mais próximo de zero
+                        else:
+                            peso_g_ajustado += 0.01 # Incrementa até zerar a coluna M
+                    
+                    # O NOVO TOTAL QUANTITY PER OVERPACK É O PESO_G AJUSTADO * CAIXAS
+                    valor_total_overpack = peso_g_ajustado * fib_boxes
+                    
+                    # FORMATAÇÃO PARA O WORD
+                    txt_total_ovp = "{:.2f}".format(valor_total_overpack).replace('.', ',')
+                    txt_peso_g = "{:.2f}".format(peso_g_ajustado).replace('.', ',')
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
@@ -71,8 +85,8 @@ if file and sigla:
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
-                        'PESO_G': txt_caixa,
-                        'TOTAL_OVERPACK': txt_saca,
+                        'PESO_G': txt_peso_g,
+                        'TOTAL_OVERPACK': txt_total_ovp,
                         'MARCACAO': marcacao,
                         'DATA': date.today().strftime('%d/%m/%Y'),
                         'QTD_OVERPACK': int(sacas_f)
@@ -83,9 +97,9 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Calculado com Sucesso! Saca: {txt_saca} | Caixa: {txt_caixa}")
+                    st.success(f"✅ Ajuste Fino Aplicado! G: {txt_peso_g} | Total OVP: {txt_total_ovp}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
-                    st.error(f"Destino {cidade} não localizado.")
+                    st.error("Destino não encontrado.")
     except Exception as e:
-        st.error(f"Erro no processamento: {e}")
+        st.error(f"Erro: {e}")
