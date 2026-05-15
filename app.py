@@ -5,32 +5,26 @@ import io
 import math
 from datetime import date
 
-# 1. CONFIGURAÇÃO E VISUAL (CORRIGE O ERRO DE PÁGINA BRANCA)
-st.set_page_config(page_title="Gerador de Shippers", layout="wide")
+# 1. CONFIGURAÇÃO (CORREÇÃO DEFINITIVA DO CARREGAMENTO)
+st.set_page_config(page_title="Gerador New Post", layout="wide")
 
 st.markdown("""
 <style>
-    .stButton>button {
-        background-color: #28a745 !important;
-        color: white !important;
-        font-weight: bold;
-        width: 100%;
-        height: 3.5em;
-    }
+    .stButton>button { background-color: #28a745 !important; color: white !important; font-weight: bold; width: 100%; }
     h1 { color: #003366; text-align: center; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("Gerador de Shippers")
 
-# 2. ENTRADA DE DADOS
+# 2. ENTRADA
 col1, col2 = st.columns(2)
 with col1:
-    sigla = st.text_input("Sigla do Destino (Ex: CGB):").upper().strip()
+    sigla = st.text_input("Sigla (Ex: CGB):").upper().strip()
 with col2:
     sacas_f = st.number_input("Quantidade de Sacas:", min_value=1, step=1)
 
-file = st.file_uploader("Upload da Planilha de Coleta", type=["xlsx"])
+file = st.file_uploader("Upload da Planilha", type=["xlsx"])
 
 if file and sigla:
     try:
@@ -56,32 +50,33 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- FÓRMULAS REAJUSTADAS CONFORME MODELO CORRETO ---
+                    # --- NOVA LÓGICA DE CÁLCULO PARA BATER COM O PDF ---
                     peso_total = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # Coluna I: Fibreboard Boxes (por saca)
-                    # Regra: Se decimal > 0.50 arredonda pra cima, senão mantém.
+                    # 1. FIBREBOARD (Valor fixo por saca, conforme regra do 0.50)
                     v_i = peso_total / sacas_f
                     sobra = v_i - int(v_i)
-                    fib_boxes_i = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
+                    fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
                     
-                    # Coluna J: Saca KG (Peso Total / Sacas / Fib Boxes)
-                    # Arredondado sempre para cima com 2 casas decimais
-                    saca_kg_j = math.ceil((peso_total / (sacas_f * fib_boxes_i)) * 100) / 100
+                    # 2. PESO_G (Deve ser o PESO TOTAL dividido apenas pela QTD DE SACAS)
+                    # No exemplo CGB: 131,32 / 7 sacas = 18,76 (Isso é o Total Overpack)
+                    # Então Peso_G é o Total Overpack / Fib Boxes (18,76 / 4 = 4,69)
+                    total_overpack_calc = peso_total / sacas_f
+                    peso_g_calc = total_overpack_calc / fib_boxes
                     
-                    # Coluna K: Total Overpack (Fib Boxes * Saca KG)
-                    total_ovp_k = fib_boxes_i * saca_kg_j
+                    # Arredondamentos para exibição (2 casas)
+                    peso_g_final = math.ceil(peso_g_calc * 100) / 100
+                    total_overpack_final = fib_boxes * peso_g_final
                     
-                    # Marcação (#1 #2 #3...)
-                    txt_marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
+                    marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # GERAÇÃO DO WORD
+                    # GERAÇÃO
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
-                        'FIBREBOARD': int(fib_boxes_i), # Conforme PDF: deve ser o valor por saca (ex: 4)
-                        'PESO_G': f"{saca_kg_j:.2f}".replace('.', ','),
-                        'TOTAL_OVERPACK': f"{total_ovp_k:.2f}".replace('.', ','),
-                        'MARCACAO': txt_marcacao,
+                        'FIBREBOARD': int(fib_boxes),
+                        'PESO_G': f"{peso_g_final:.2f}".replace('.', ','),
+                        'TOTAL_OVERPACK': f"{total_overpack_final:.2f}".replace('.', ','),
+                        'MARCACAO': marcacao,
                         'DATA': date.today().strftime('%d/%m/%Y'),
                         'QTD_OVERPACK': int(sacas_f)
                     }
@@ -91,11 +86,9 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Gerado com sucesso para {cidade}!")
+                    st.success(f"✅ Calculado: {fib_boxes} caixas de {peso_g_final:.2f}kg")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
-                    st.error(f"Destino {cidade} não localizado.")
-            else:
-                st.error("Colunas DESTINO ou PESO não encontradas.")
+                    st.error(f"Destino {cidade} não encontrado.")
     except Exception as e:
         st.error(f"Erro: {e}")
