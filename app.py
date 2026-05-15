@@ -42,51 +42,56 @@ if file and sigla:
                 df_f = df_f[~df_f[c_dest].astype(str).str.upper().str.contains("TOTAL", na=False)]
 
                 if not df_f.empty:
-                    # --- LÓGICA DE ACORDO COM A PLANILHA (COLUNAS J, K, M) ---
-                    peso_total_destino = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
+                    # --- INÍCIO DA LÓGICA DA PLANILHA ---
+                    peso_total_planilha = pd.to_numeric(df_f[c_peso], errors='coerce').sum()
                     
-                    # 1. VALOR DA COLUNA K (TOTAL QUANTITY PER OVERPACK)
-                    # Baseado na inserção da quantidade de sacas
-                    valor_k = peso_total_destino / sacas_f
+                    # PASSO 1: DEFINIR FIBREBOARD (I)
+                    # Valor base para decidir as caixas (Coluna K provisória)
+                    k_base = peso_total_planilha / sacas_f
                     
-                    # 2. FIBREBOARD (I) - Definindo as caixas
                     if sigla == "CGB" and sacas_f == 7:
                         fib_boxes = 4
                     else:
-                        v_i = valor_k / 4.5
-                        fib_boxes = math.ceil(v_i) if (v_i - int(v_i)) > 0.50 else math.floor(v_i)
+                        v_i = k_base / 4.5
+                        sobra = v_i - int(v_i)
+                        fib_boxes = math.ceil(v_i) if sobra > 0.50 else math.floor(v_i)
 
-                    # 3. AJUSTE FINO DO PESO G (COLUNA J -> M)
-                    # Começamos com o cálculo base: (Total / Sacas) / Caixas
-                    peso_g_inicial = valor_k / fib_boxes
-                    peso_g_ajustado = round(peso_g_inicial, 2)
+                    # PASSO 2: AJUSTE DO Kg G (Coluna J) ATÉ M >= 0
+                    # Começamos com o cálculo exato e arredondamos
+                    peso_g_ajustado = round((peso_total_planilha / sacas_f) / fib_boxes, 2)
                     
-                    # Simulação da Coluna M: Precisamos que (Peso_G * Caixas * Sacas) >= Peso_Total
-                    # e que a diferença seja a menor possível (próxima de zero)
+                    # LOOP DE OTIMIZAÇÃO (Simula o ajuste manual da coluna J)
                     while True:
-                        total_calculado = round(peso_g_ajustado * fib_boxes * sacas_f, 2)
-                        residuo = round(total_calculado - peso_total_destino, 2)
+                        # Cálculo do Total que esse Peso G geraria no final
+                        # (J * I * Sacas)
+                        total_simulado = round(peso_g_ajustado * fib_boxes * sacas_f, 2)
                         
-                        if residuo >= 0:
-                            break # Encontramos o número positivo mais próximo de zero
+                        # Coluna M (Saldo)
+                        saldo_m = round(total_simulado - peso_total_planilha, 2)
+                        
+                        if saldo_m >= 0:
+                            # Encontramos o valor positivo mais próximo de zero!
+                            break
                         else:
-                            peso_g_ajustado += 0.01 # Incrementa até zerar a coluna M
+                            # Se saldo for negativo (ex: -1,27), subimos 0,01 no Kg G
+                            peso_g_ajustado = round(peso_g_ajustado + 0.01, 2)
                     
-                    # O NOVO TOTAL QUANTITY PER OVERPACK É O PESO_G AJUSTADO * CAIXAS
-                    valor_total_overpack = peso_g_ajustado * fib_boxes
+                    # PASSO 3: DEFINIR O TOTAL QUANTITY PER OVERPACK (K) FINAL
+                    # É o Peso G ajustado multiplicado pelas caixas (J * I)
+                    valor_k_final = round(peso_g_ajustado * fib_boxes, 2)
                     
                     # FORMATAÇÃO PARA O WORD
-                    txt_total_ovp = "{:.2f}".format(valor_total_overpack).replace('.', ',')
+                    txt_total_k = "{:.2f}".format(valor_k_final).replace('.', ',')
                     txt_peso_g = "{:.2f}".format(peso_g_ajustado).replace('.', ',')
                     
                     marcacao = " ".join([f"#{i+1}" for i in range(int(sacas_f))])
 
-                    # 4. GERAÇÃO
+                    # 3. GERAÇÃO DO DOC
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     contexto = {
                         'FIBREBOARD': int(fib_boxes),
                         'PESO_G': txt_peso_g,
-                        'TOTAL_OVERPACK': txt_total_ovp,
+                        'TOTAL_OVERPACK': txt_total_k,
                         'MARCACAO': marcacao,
                         'DATA': date.today().strftime('%d/%m/%Y'),
                         'QTD_OVERPACK': int(sacas_f)
@@ -97,7 +102,7 @@ if file and sigla:
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"✅ Ajuste Fino Aplicado! G: {txt_peso_g} | Total OVP: {txt_total_ovp}")
+                    st.success(f"✅ Otimização Concluída! G: {txt_peso_g} | Total K: {txt_total_k}")
                     st.download_button(f"📥 BAIXAR SHIPPER {sigla}", output, f"Shipper_{sigla}.docx")
                 else:
                     st.error("Destino não encontrado.")
