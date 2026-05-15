@@ -9,7 +9,7 @@ from datetime import date
 st.set_page_config(page_title="Gerador de Shippers", layout="wide")
 
 # ESTILO VISUAL (PADRÃO NEW POST)
-st.markdown("""
+st.markdown(""")
 <style>
 .main { background-color: #f5f5f5; }
 .stButton>button {
