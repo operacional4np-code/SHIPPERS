@@ -15,7 +15,6 @@ def arredondar_logistica(valor):
 st.set_page_config(page_title="Gerador New Post 📝")
 st.title("📝 Gerador de Shipper Direto")
 
-# Interface simplificada
 col1, col2 = st.columns(2)
 with col1:
     sigla = st.text_input("Sigla do Destino (ex: CWB):").upper().strip()
@@ -25,24 +24,26 @@ with col2:
 file = st.file_uploader("Selecione a Planilha de Coleta", type=["xlsx"])
 
 if file and sigla:
-    df = pd.read_excel(file)
+    # O ajuste 'header=2' faz o código ler a partir da linha 3 do Excel
+    df = pd.read_excel(file, header=2)
+    
+    # Limpa os nomes das colunas para evitar erros com espaços ou letras minúsculas
     df.columns = [str(c).strip().upper() for c in df.columns]
 
     if st.button(f"Gerar Documento para {sigla}"):
         if 'DESTINO' in df.columns:
-            # Filtra apenas o destino digitado e soma os pesos
+            # Filtra apenas o destino digitado
             df_filtrado = df[df['DESTINO'].astype(str).str.contains(sigla, na=False, case=False)]
             
             if df_filtrado.empty:
-                st.error(f"Destino {sigla} não encontrado na planilha.")
+                st.error(f"Destino {sigla} não encontrado na coluna DESTINO (Linha 3).")
+                st.write("Colunas lidas pelo sistema:", list(df.columns))
             else:
                 peso_total = arredondar_logistica(df_filtrado['PESO'].sum())
                 
                 try:
-                    # Busca o modelo na pasta templates/
                     doc = DocxTemplate(f"templates/{sigla}-SHIPPER-t.docx")
                     
-                    # Preenche as tags {{ }} do seu Word
                     contexto = {
                         'FIBREBOARD': int(sacas),
                         'PESO_G': peso_total,
@@ -54,12 +55,11 @@ if file and sigla:
                     
                     doc.render(contexto)
                     
-                    # Prepara o arquivo para download
                     output = io.BytesIO()
                     doc.save(output)
                     output.seek(0)
                     
-                    st.success(f"Documento de {sigla} gerado com sucesso!")
+                    st.success(f"Documento de {sigla} gerado! Peso total somado: {peso_total}kg")
                     st.download_button(
                         label="📥 Baixar Arquivo Preenchido",
                         data=output,
@@ -67,6 +67,7 @@ if file and sigla:
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
                 except FileNotFoundError:
-                    st.error(f"O modelo '{sigla}-SHIPPER-t.docx' não está na pasta templates.")
+                    st.error(f"Modelo '{sigla}-SHIPPER-t.docx' não encontrado na pasta templates.")
         else:
-            st.error("A coluna 'DESTINO' não foi encontrada na planilha.")
+            st.error("A coluna 'DESTINO' não foi encontrada na linha 3 da planilha.")
+            st.write("Colunas detectadas:", list(df.columns))
